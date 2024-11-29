@@ -53,7 +53,6 @@ export class SpeechTranslatorService {
                 ],
                 max_tokens: 2048
             });
-            // console.log(chatCompletion.choices[0]?.message?.content);
             return chatCompletion.choices[0]?.message?.content || '';
         } catch (error) {
             console.error('AI response generation error:', error);
@@ -67,12 +66,12 @@ export class SpeechTranslatorService {
                 input: { text },
                 voice: {
                     languageCode: this.languageCode,
-                    name: 'pa-IN-Standard-A'
+                    name: `${this.languageCode}-Standard-A`
                 },
                 audioConfig: {
                     audioEncoding: 'MP3',
                     effectsProfileId: ['headphone-class-device'],
-                    speakingRate: 1.3,  // Speeds up the speech by 30%
+                    speakingRate: 1.25,
                     pitch: 0,           // Default pitch (can be adjusted from -20.0 to 20.0)
                 }
             });

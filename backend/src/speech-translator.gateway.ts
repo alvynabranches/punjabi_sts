@@ -6,8 +6,9 @@ import { SpeechTranslatorService } from './speech-translator.service';
 @Injectable()
 @WebSocketGateway({
     cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
+        origin: ["http://34.173.101.181", "http://34.173.101.181:80", '*'],
+        methods: ['GET', 'POST'],
+        credentials: true
     }
 })
 export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDisconnect {

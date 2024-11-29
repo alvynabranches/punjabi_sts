@@ -1,11 +1,6 @@
 services:
   frontend:
     build: frontend/.
-    environment:
-      - OPENAI_API_KEY=""
-      - GOOGLE_APPLICATION_CREDENTIALS="/Users/alvynabranches/Downloads/prefab-wave-440116-q7-3d26f97c5a3a.json"
-      - GOOGLE_PROJECT_ID="prefab-wave-440116-q7"
-      - LANGUAGE_CODE="pa-IN"
     depends_on:
       - backend
     ports:

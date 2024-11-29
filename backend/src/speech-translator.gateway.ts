@@ -3,10 +3,11 @@ import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnectio
 import { Server, Socket } from 'socket.io';
 import { SpeechTranslatorService } from './speech-translator.service';
 
+const ip: string = '34.173.101.181';
 @Injectable()
 @WebSocketGateway({
     cors: {
-        origin: ["http://34.173.101.181", "http://34.173.101.181:80", '*'],
+        origin: [`http://${ip}`, `http://${ip}:80`, `http://${ip}:3001`, `http://${ip}:3001`, '*'],
         methods: ['GET', 'POST'],
         credentials: true
     }

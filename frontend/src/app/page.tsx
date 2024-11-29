@@ -26,7 +26,7 @@ export default function SpeechTranslator() {
   // Socket connection and event handling
   useEffect(() => {
     // Establish socket connection
-    const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://backend:3001');
+    const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'http://0.0.0.0:3001');
     setSocket(newSocket);
 
     // Error handling for socket connection

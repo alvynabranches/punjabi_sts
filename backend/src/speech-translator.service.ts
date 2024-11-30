@@ -1,85 +1,192 @@
 import { Injectable } from '@nestjs/common';
 import { SpeechClient } from '@google-cloud/speech';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
+import { UsageTrackerService } from './usage-tracker.service';
 import OpenAI from 'openai';
+
+// Define supported languages
+const SUPPORTED_LANGUAGES = ['en-US', 'hi-IN', 'pa-IN', 'mr-IN'] as const;
+type LanguageCode = typeof SUPPORTED_LANGUAGES[number];
+
+interface APIError {
+    message: string;
+    code?: string | number;
+    details?: unknown;
+}
 
 @Injectable()
 export class SpeechTranslatorService {
     private speechClient: SpeechClient;
     private textToSpeechClient: TextToSpeechClient;
     private openai: OpenAI;
-    private readonly languageCode: string;
+    private readonly MODEL_NAME = 'gpt-4o-mini';
 
-    constructor() {
+    // Language name mapping with proper typing
+    private readonly languageNames: Record<LanguageCode, string> = {
+        'en-US': 'English',
+        'hi-IN': 'Hindi',
+        'pa-IN': 'Punjabi',
+        'mr-IN': 'Marathi'
+    };
+
+    constructor(
+        private readonly usageTracker: UsageTrackerService
+    ) {
         this.speechClient = new SpeechClient();
         this.textToSpeechClient = new TextToSpeechClient();
         this.openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY
         });
-        this.languageCode = process.env.LANGUAGE_CODE || 'en-US';
     }
 
-    // Add explicit return type and method implementations
-    async transcribeSpeech(audioBuffer: Buffer): Promise<string> {
+    async transcribeSpeech(audioBuffer: Buffer, languageCode: LanguageCode = 'en-US'): Promise<string> {
+        const startTime = Date.now();
         try {
             const [response] = await this.speechClient.recognize({
                 audio: { content: audioBuffer.toString('base64') },
                 config: {
                     encoding: 'WEBM_OPUS',
-                    sampleRateHertz: 48000,  // Updated to match the WEBM OPUS header
-                    languageCode: this.languageCode,
+                    sampleRateHertz: 48000,
+                    languageCode,
                 }
             });
-            return response.results?.[0]?.alternatives?.[0]?.transcript || '';
+
+            const duration = Date.now() - startTime;
+            this.usageTracker.trackSpeechToText(duration, true);
+
+            const transcript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
+            return transcript;
+
         } catch (error) {
+            const duration = Date.now() - startTime;
+            const errorMessage = this.getErrorMessage(error);
+            this.usageTracker.trackSpeechToText(duration, false, errorMessage);
             console.error('Speech transcription error:', error);
-            return '';
+            throw new Error(`Speech transcription failed: ${errorMessage}`);
         }
     }
 
-    async generateAIResponse(prompt: string): Promise<string> {
+    async generateAIResponse(prompt: string, languageCode: LanguageCode = 'en-US'): Promise<string> {
         try {
+            const languageName = this.languageNames[languageCode];
+
             const chatCompletion = await this.openai.chat.completions.create({
-                model: 'gpt-4o',
+                model: this.MODEL_NAME,
                 messages: [
                     {
                         role: 'system',
-                        content: `You are a helpful assistant who responds in ${this.languageCode === 'en-US' ? 'English' : 'Punjabi'}. Keep your responses natural and conversational.`
+                        content: `You are a helpful assistant who responds in ${languageName}. 
+                                Keep your responses natural, conversational, and concise.`
                     },
                     {
                         role: 'user',
                         content: prompt
                     }
                 ],
-                max_tokens: 2048
+                max_tokens: 150,
+                temperature: 0.7,
+                top_p: 0.9,
+                frequency_penalty: 0.0,
+                presence_penalty: 0.6
             });
-            return chatCompletion.choices[0]?.message?.content || '';
+
+            const response = chatCompletion.choices[0]?.message?.content || '';
+
+            // Track successful API usage
+            this.usageTracker.trackChatGPT(
+                prompt,
+                response,
+                this.MODEL_NAME,
+                true
+            );
+
+            return response;
+
         } catch (error) {
+            const errorMessage = this.getErrorMessage(error);
+            // Track failed API usage
+            this.usageTracker.trackChatGPT(
+                prompt,
+                '',
+                this.MODEL_NAME,
+                false,
+                errorMessage
+            );
             console.error('AI response generation error:', error);
-            return '';
+            throw new Error(`AI response generation failed: ${errorMessage}`);
         }
     }
 
-    async textToSpeech(text: string): Promise<Buffer> {
+    async textToSpeech(
+        text: string,
+        speakingRate: number = 1.0,
+        languageCode: LanguageCode = 'en-US'
+    ): Promise<Buffer> {
         try {
             const [response] = await this.textToSpeechClient.synthesizeSpeech({
                 input: { text },
                 voice: {
-                    languageCode: this.languageCode,
-                    name: `${this.languageCode}-Standard-A`
+                    languageCode,
+                    name: this.getVoiceName(languageCode)
                 },
                 audioConfig: {
                     audioEncoding: 'MP3',
                     effectsProfileId: ['headphone-class-device'],
-                    speakingRate: 1.25,
-                    pitch: 0,           // Default pitch (can be adjusted from -20.0 to 20.0)
+                    speakingRate,
+                    pitch: 0,
+                    volumeGainDb: 0,
                 }
             });
 
+            // Track successful API usage
+            this.usageTracker.trackTextToSpeech(text, true);
+
             return response.audioContent as Buffer;
+
         } catch (error) {
+            const errorMessage = this.getErrorMessage(error);
+            // Track failed API usage
+            this.usageTracker.trackTextToSpeech(text, false, errorMessage);
             console.error('Text-to-speech conversion error:', error);
-            return Buffer.from('');
+            throw new Error(`Text-to-speech conversion failed: ${errorMessage}`);
         }
+    }
+
+    private getVoiceName(languageCode: LanguageCode): string {
+        // Select appropriate voice based on language code
+        switch (languageCode) {
+            case 'pa-IN':  // Punjabi
+                return 'pa-IN-Standard-A';
+            case 'hi-IN':  // Hindi
+                return 'hi-IN-Neural2-A';
+            case 'mr-IN':  // Marathi
+                return 'mr-IN-Standard-A';
+            case 'en-US':  // English
+            default:
+                return 'en-US-Neural2-F';
+        }
+    }
+
+    private getErrorMessage(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        if (typeof error === 'object' && error !== null) {
+            const apiError = error as APIError;
+            if ('message' in apiError) {
+                return apiError.message;
+            }
+        }
+        return 'An unknown error occurred';
+    }
+
+    // Helper method to get usage statistics
+    getUsageStats() {
+        return this.usageTracker.getUsageSummary();
+    }
+
+    // Helper method to validate language code
+    private isValidLanguage(languageCode: string): languageCode is LanguageCode {
+        return SUPPORTED_LANGUAGES.includes(languageCode as LanguageCode);
     }
 }

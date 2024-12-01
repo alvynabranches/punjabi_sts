@@ -8,10 +8,21 @@ import { UsageTrackerService } from './usage-tracker.service';
 const SUPPORTED_LANGUAGES = ['en-US', 'hi-IN', 'pa-IN', 'mr-IN'] as const;
 type LanguageCode = typeof SUPPORTED_LANGUAGES[number];
 
+// Define voice types
+type VoiceType = 'standard-female' | 'standard-male' | 'neural-female' | 'neural-male' | 'wavenet-female' | 'wavenet-male';
+
 interface SpeechToTextPayload {
     audioBuffer: Buffer;
     speakingRate?: number;
+    pitch?: number;
     language: LanguageCode;
+    voiceName?: string;
+}
+
+interface LanguageInfo {
+    code: LanguageCode;
+    name: string;
+    voices: Record<VoiceType, string>;
 }
 
 @Injectable()
@@ -26,6 +37,58 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
     server!: Server;
 
     private clientLanguages: Map<string, LanguageCode> = new Map();
+
+    // Language configuration with voice options
+    private readonly languageConfig: Record<LanguageCode, LanguageInfo> = {
+        'en-US': {
+            code: 'en-US',
+            name: 'English',
+            voices: {
+                'standard-female': 'en-IN-Standard-A',
+                'standard-male': 'en-IN-Standard-B',
+                'neural-female': 'en-IN-Neural2-A',
+                'neural-male': 'en-IN-Neural2-B',
+                'wavenet-female': 'en-IN-Wavenet-A',
+                'wavenet-male': 'en-IN-Wavenet-B'
+            }
+        },
+        'hi-IN': {
+            code: 'hi-IN',
+            name: 'हिंदी',
+            voices: {
+                'standard-female': 'hi-IN-Standard-A',
+                'standard-male': 'hi-IN-Standard-B',
+                'neural-female': 'hi-IN-Neural2-A',
+                'neural-male': 'hi-IN-Neural2-B',
+                'wavenet-female': 'hi-IN-Wavenet-A',
+                'wavenet-male': 'hi-IN-Wavenet-B'
+            }
+        },
+        'pa-IN': {
+            code: 'pa-IN',
+            name: 'ਪੰਜਾਬੀ',
+            voices: {
+                'standard-female': 'pa-IN-Standard-A',
+                'standard-male': 'pa-IN-Standard-B',
+                'neural-female': 'pa-IN-Standard-A', // Fallback to standard
+                'neural-male': 'pa-IN-Standard-B',   // Fallback to standard
+                'wavenet-female': 'pa-IN-Wavenet-A',
+                'wavenet-male': 'pa-IN-Wavenet-B'
+            }
+        },
+        'mr-IN': {
+            code: 'mr-IN',
+            name: 'मराठी',
+            voices: {
+                'standard-female': 'mr-IN-Standard-A',
+                'standard-male': 'mr-IN-Standard-B',
+                'neural-female': 'mr-IN-Standard-A', // Fallback to standard
+                'neural-male': 'mr-IN-Standard-B',   // Fallback to standard
+                'wavenet-female': 'mr-IN-Wavenet-A',
+                'wavenet-male': 'mr-IN-Wavenet-B'
+            }
+        }
+    };
 
     constructor(
         private readonly speechTranslatorService: SpeechTranslatorService,
@@ -46,8 +109,8 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
     @SubscribeMessage('set-language')
     handleSetLanguage(client: Socket, language: LanguageCode) {
         if (!SUPPORTED_LANGUAGES.includes(language)) {
-            client.emit('error', { 
-                message: `Unsupported language. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}` 
+            client.emit('error', {
+                message: `Unsupported language. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}`
             });
             return;
         }
@@ -58,8 +121,8 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
     @SubscribeMessage('speech-to-text')
     async handleSpeechToText(client: Socket, payload: SpeechToTextPayload) {
         try {
-            const { audioBuffer, speakingRate = 1.0, language } = payload;
-            
+            const { audioBuffer, speakingRate = 1.0, pitch = 0, language, voiceName } = payload;
+
             // Validate language
             if (!SUPPORTED_LANGUAGES.includes(language)) {
                 throw new Error(`Unsupported language: ${language}`);
@@ -78,11 +141,13 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
             );
 
             // Convert response to speech
-            const speechResponse = await this.speechTranslatorService.textToSpeech(
-                aiResponse,
+            const speechResponse = await this.speechTranslatorService.textToSpeech({
+                text: aiResponse,
                 speakingRate,
-                language
-            );
+                languageCode: language,
+                pitch,
+                voiceName
+            });
 
             // Get usage summary
             const usageSummary = this.usageTracker.getUsageSummary();
@@ -103,9 +168,9 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
 
         } catch (error) {
             console.error('Error processing speech:', error);
-            client.emit('error', { 
-                message: error instanceof Error 
-                    ? error.message 
+            client.emit('error', {
+                message: error instanceof Error
+                    ? error.message
                     : 'An error occurred while processing your request'
             });
         }
@@ -118,7 +183,7 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
             client.emit('usage-stats', usageSummary);
         } catch (error) {
             console.error('Error getting usage stats:', error);
-            client.emit('error', { 
+            client.emit('error', {
                 message: 'An error occurred while fetching usage statistics'
             });
         }
@@ -126,18 +191,25 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
 
     @SubscribeMessage('get-supported-languages')
     handleGetSupportedLanguages(client: Socket) {
-        const languageMap = {
-            'en-US': 'English',
-            'hi-IN': 'हिंदी',
-            'pa-IN': 'ਪੰਜਾਬੀ',
-            'mr-IN': 'मराठी'
-        };
-        
-        client.emit('supported-languages', {
-            languages: SUPPORTED_LANGUAGES.map(code => ({
-                code,
-                name: languageMap[code]
-            }))
-        });
+        const languages = Object.values(this.languageConfig).map(lang => ({
+            code: lang.code,
+            name: lang.name,
+            voices: lang.voices
+        }));
+
+        client.emit('supported-languages', { languages });
+    }
+
+    @SubscribeMessage('get-voice-options')
+    handleGetVoiceOptions(client: Socket, language: LanguageCode) {
+        if (!SUPPORTED_LANGUAGES.includes(language)) {
+            client.emit('error', {
+                message: `Unsupported language: ${language}`
+            });
+            return;
+        }
+
+        const voices = this.languageConfig[language].voices;
+        client.emit('voice-options', { voices });
     }
 }

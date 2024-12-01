@@ -14,6 +14,14 @@ interface APIError {
     details?: unknown;
 }
 
+interface TextToSpeechOptions {
+    text: string;
+    speakingRate?: number;
+    languageCode?: LanguageCode;
+    pitch?: number;
+    voiceName?: string;
+}
+
 @Injectable()
 export class SpeechTranslatorService {
     private speechClient: SpeechClient;
@@ -117,36 +125,40 @@ export class SpeechTranslatorService {
         }
     }
 
-    async textToSpeech(
-        text: string,
-        speakingRate: number = 1.0,
-        languageCode: LanguageCode = 'en-US'
-    ): Promise<Buffer> {
+    async textToSpeech({
+        text,
+        speakingRate = 1.0,
+        languageCode = 'en-US',
+        pitch = 0,
+        voiceName
+    }: TextToSpeechOptions): Promise<Buffer> {
         try {
             const [response] = await this.textToSpeechClient.synthesizeSpeech({
                 input: { text },
                 voice: {
                     languageCode,
-                    name: this.getVoiceName(languageCode)
+                    name: voiceName || this.getVoiceName(languageCode)
                 },
                 audioConfig: {
                     audioEncoding: 'MP3',
                     effectsProfileId: ['headphone-class-device'],
                     speakingRate,
-                    pitch: 0,
+                    pitch,
                     volumeGainDb: 0,
                 }
             });
-
+            // Track successful API usage with voice type
+            const isStandardVoice = voiceName?.includes('Standard') ?? true;
+            const costPerChar = isStandardVoice ? 0.000004 : 0.000016;
             // Track successful API usage
-            this.usageTracker.trackTextToSpeech(text, true);
+            this.usageTracker.trackTextToSpeech(text, true, undefined, voiceName);
 
             return response.audioContent as Buffer;
 
         } catch (error) {
             const errorMessage = this.getErrorMessage(error);
             // Track failed API usage
-            this.usageTracker.trackTextToSpeech(text, false, errorMessage);
+            this.usageTracker.trackTextToSpeech(text, false, errorMessage, voiceName);
             console.error('Text-to-speech conversion error:', error);
             throw new Error(`Text-to-speech conversion failed: ${errorMessage}`);
         }
@@ -158,12 +170,12 @@ export class SpeechTranslatorService {
             case 'pa-IN':  // Punjabi
                 return 'pa-IN-Standard-A';
             case 'hi-IN':  // Hindi
-                return 'hi-IN-Neural2-A';
+                return 'hi-IN-Standard-A';
             case 'mr-IN':  // Marathi
                 return 'mr-IN-Standard-A';
             case 'en-US':  // English
             default:
-                return 'en-US-Neural2-F';
+                return 'en-IN-Standard-A';
         }
     }
 

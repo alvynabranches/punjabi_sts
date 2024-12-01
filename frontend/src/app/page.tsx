@@ -24,8 +24,9 @@ interface UsageStats {
 }
 
 export default function SpeechTranslator() {
-  // Define the language type
+  // Define types
   type SupportedLanguage = 'en-US' | 'hi-IN' | 'pa-IN' | 'mr-IN';
+  type VoiceType = 'standard-female' | 'standard-male' | 'neural-female' | 'neural-male' | 'wavenet-female' | 'wavenet-male';
 
   // State management with explicit types
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -35,32 +36,64 @@ export default function SpeechTranslator() {
   const [socket, setSocket] = useState<typeof Socket | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [speakingRate, setSpeakingRate] = useState<number>(1.0);
-  const [language, setLanguage] = useState<'en-US' | 'hi-IN' | 'pa-IN' | 'mr-IN'>('en-US');
+  const [language, setLanguage] = useState<SupportedLanguage>('en-US');
+  const [pitch, setPitch] = useState<number>(0);
+  const [voiceType, setVoiceType] = useState<VoiceType>('standard-male');
 
-  // Language options
-  const languages: Array<{
-    code: SupportedLanguage;
-    name: string;
-    label: string;
-  }> = [
-      { code: 'en-US', name: 'English', label: 'English' },
-      { code: 'hi-IN', name: 'Hindi', label: 'हिंदी' },
-      { code: 'pa-IN', name: 'Punjabi', label: 'ਪੰਜਾਬੀ' },
-      { code: 'mr-IN', name: 'Marathi', label: 'मराठी' }
-    ];
+  // Voice options with proper typing
+  const voiceOptions: Record<SupportedLanguage, Record<VoiceType, string>> = {
+    'en-US': {
+      'standard-female': 'en-IN-Standard-A',
+      'standard-male': 'en-IN-Standard-B',
+      'neural-female': 'en-IN-Neural2-A',
+      'neural-male': 'en-IN-Neural2-B',
+      'wavenet-female': 'en-IN-Wavenet-A',
+      'wavenet-male': 'en-IN-Wavenet-B',
+    },
+    'hi-IN': {
+      'standard-female': 'hi-IN-Standard-A',
+      'standard-male': 'hi-IN-Standard-B',
+      'neural-female': 'hi-IN-Neural2-A',
+      'neural-male': 'hi-IN-Neural2-B',
+      'wavenet-female': 'hi-IN-Wavenet-A',
+      'wavenet-male': 'hi-IN-Wavenet-B',
+    },
+    'pa-IN': {
+      'standard-female': 'pa-IN-Standard-A',
+      'standard-male': 'pa-IN-Standard-B',
+      'neural-female': 'pa-IN-Standard-A', // Fallback to standard for unsupported types
+      'neural-male': 'pa-IN-Standard-B',
+      'wavenet-female': 'pa-IN-Wavenet-A',
+      'wavenet-male': 'pa-IN-Wavenet-B',
+    },
+    'mr-IN': {
+      'standard-female': 'mr-IN-Standard-A',
+      'standard-male': 'mr-IN-Standard-B',
+      'neural-female': 'mr-IN-Standard-A', // Fallback to standard for unsupported types
+      'neural-male': 'mr-IN-Standard-B',
+      'wavenet-female': 'mr-IN-Wavenet-A',
+      'wavenet-male': 'mr-IN-Wavenet-B',
+    },
+  };
 
   // Refs with proper typing
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Language change handler
+  // Language change handler with proper typing
   const handleLanguageChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newLanguage = event.target.value as 'en-US' | 'hi-IN' | 'pa-IN' | 'mr-IN';
+    const newLanguage = event.target.value as SupportedLanguage;
     setLanguage(newLanguage);
     if (socket) {
       socket.emit('set-language', newLanguage);
     }
+  };
+
+  // Voice type change handler with proper typing
+  const handleVoiceTypeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newVoiceType = event.target.value as VoiceType;
+    setVoiceType(newVoiceType);
   };
 
   // Update socket connection with language
@@ -72,16 +105,13 @@ export default function SpeechTranslator() {
 
   // Socket connection and event handling
   useEffect(() => {
-    // Establish socket connection
     const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || "http://localhost:3001");
     setSocket(newSocket);
 
-    // Error handling for socket connection
     newSocket.on('connect_error', (err: Error) => {
       setError(`Socket connection error: ${err.message}`);
     });
 
-    // Listen for text-to-speech response
     newSocket.on('text-to-speech', (data: {
       transcription: string;
       aiResponse: string;
@@ -93,7 +123,6 @@ export default function SpeechTranslator() {
       setUsage(data.usage);
       setError(null);
 
-      // Audio playback
       if (data.audioBuffer && audioRef.current) {
         try {
           const blob = new Blob([data.audioBuffer], { type: 'audio/wav' });
@@ -106,17 +135,12 @@ export default function SpeechTranslator() {
           setError(`Audio processing error: ${audioError instanceof Error ? audioError.message : 'Unknown error'}`);
         }
       }
-
-      // Request initial usage stats
-      newSocket.emit('get-usage-stats');
     });
 
-    // Socket error handling
     newSocket.on('error', (errorMsg: string) => {
       setError(errorMsg);
     });
 
-    // Cleanup on component unmount
     return () => {
       newSocket.disconnect();
     };
@@ -125,40 +149,32 @@ export default function SpeechTranslator() {
   // Start recording method
   const startRecording = async () => {
     try {
-      // Request microphone access
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-      // Initialize media recorder
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
-      // Collect audio chunks
       mediaRecorderRef.current.ondataavailable = (event) => {
         audioChunksRef.current.push(event.data);
       };
 
-
-      // Update the stopRecording method to include language
       mediaRecorderRef.current.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
         if (socket) {
           socket.emit('speech-to-text', {
             audioBuffer: audioBlob,
             speakingRate,
-            language
+            language,
+            pitch,
+            voiceName: voiceOptions[language][voiceType]
           });
         }
       };
 
-      // Start recording
       mediaRecorderRef.current.start();
       setIsRecording(true);
       setError(null);
     } catch (error) {
-      // Handle microphone access errors
-      const errorMessage = error instanceof Error
-        ? error.message
-        : 'Unable to access microphone';
+      const errorMessage = error instanceof Error ? error.message : 'Unable to access microphone';
       setError(errorMessage);
       console.error('Microphone access error:', error);
     }
@@ -179,9 +195,13 @@ export default function SpeechTranslator() {
           Speech Assistant
         </h1>
 
-        {/* ... error display ... */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
+            {error}
+          </div>
+        )}
 
-        {/* Language Selector Dropdown */}
+        {/* Language Selector */}
         <div className="mb-6">
           <label htmlFor="language-select" className="block text-sm font-medium text-gray-700 mb-2">
             Select Language
@@ -199,6 +219,30 @@ export default function SpeechTranslator() {
           </select>
         </div>
 
+        {/* Voice Type Selector */}
+        <div className="mb-6">
+          <label htmlFor="voice-select" className="block text-sm font-medium text-gray-700 mb-2">
+            Voice Type
+          </label>
+          <select
+            id="voice-select"
+            value={voiceType}
+            onChange={handleVoiceTypeChange}
+            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="standard-female">Standard Female</option>
+            <option value="standard-male">Standard Male</option>
+            {language !== 'pa-IN' && language !== 'mr-IN' && (
+              <>
+                <option value="neural-female">Neural Female</option>
+                <option value="neural-male">Neural Male</option>
+              </>
+            )}
+            <option value="wavenet-female">Wavenet Female</option>
+            <option value="wavenet-male">Wavenet Male</option>
+          </select>
+        </div>
+
         {/* Speed Control Slider */}
         <div className="mb-4">
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -213,11 +257,22 @@ export default function SpeechTranslator() {
             onChange={(e) => setSpeakingRate(parseFloat(e.target.value))}
             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
           />
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>0.25x</span>
-            <span>1x</span>
-            <span>4x</span>
-          </div>
+        </div>
+
+        {/* Pitch Control Slider */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Pitch: {pitch.toFixed(1)}
+          </label>
+          <input
+            type="range"
+            min="-20"
+            max="20"
+            step="1"
+            value={pitch}
+            onChange={(e) => setPitch(parseFloat(e.target.value))}
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+          />
         </div>
 
         {/* Recording Button */}
@@ -267,28 +322,61 @@ export default function SpeechTranslator() {
             <div className="space-y-2">
               <div>
                 <h4 className="font-medium">Speech-to-Text</h4>
-                <p>Duration: {usage.speechToText.totalDuration.toFixed(2)}s</p>
-                <p>Cost: ${usage.speechToText.totalCost.toFixed(4)}</p>
-                <p>Success Rate: {usage.speechToText.successRate.toFixed(1)}%</p>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Duration</th>
+                      <th>Cost</th>
+                      <th>Success Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody><tr>
+                    <td>{usage.speechToText.totalDuration.toFixed(2)}s</td>
+                    <td>${usage.speechToText.totalCost.toFixed(4)}</td>
+                    <td>{usage.speechToText.successRate.toFixed(1)}%</td>
+                  </tr></tbody>
+                </table>
               </div>
 
               <div>
                 <h4 className="font-medium">ChatGPT</h4>
-                <p>Input Tokens: {usage.chatGPT.totalInputTokens}</p>
-                <p>Output Tokens: {usage.chatGPT.totalOutputTokens}</p>
-                <p>Cost: ${usage.chatGPT.totalCost.toFixed(4)}</p>
-                <p>Success Rate: {usage.chatGPT.successRate.toFixed(1)}%</p>
+                <table>
+                  <thead><tr>
+                    <th>Model</th>
+                    <th>Input Tokens</th>
+                    <th>Output Tokens</th>
+                    <th>Cost</th>
+                    <th>Success Rate</th>
+                  </tr></thead>
+                  <tbody>
+                    <tr>
+                      <td>{usage.chatGPT.totalInputTokens}</td>
+                      <td>{usage.chatGPT.totalOutputTokens}</td>
+                      <td>${usage.chatGPT.totalCost.toFixed(4)}</td>
+                      <td>{usage.chatGPT.successRate.toFixed(1)}%</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
 
               <div>
                 <h4 className="font-medium">Text-to-Speech</h4>
-                <p>Characters: {usage.textToSpeech.totalCharacters}</p>
-                <p>Cost: ${usage.textToSpeech.totalCost.toFixed(4)}</p>
-                <p>Success Rate: {usage.textToSpeech.successRate.toFixed(1)}%</p>
+                <table>
+                  <thead><tr>
+                    <th>Characters</th>
+                    <th>Cost</th>
+                    <th>Success Rate</th>
+                  </tr></thead>
+                  <tbody><tr>
+                    <td>{usage.textToSpeech.totalCharacters}</td>
+                    <td>${usage.textToSpeech.totalCost.toFixed(4)}</td>
+                    <td>{usage.textToSpeech.successRate.toFixed(1)}%</td>
+                  </tr></tbody>
+                </table>
               </div>
 
               <div className="pt-2 border-t">
-                <p className="font-medium">Total Cost: ${usage.totalCost.toFixed(4)}</p>
+                <p className="font-medium">Total Cost: <b>${usage.totalCost.toFixed(4)}</b></p>
               </div>
             </div>
           </div>

@@ -22,6 +22,11 @@ interface TextToSpeechOptions {
     voiceName?: string;
 }
 
+interface ChatMessage {
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+}
+
 @Injectable()
 export class SpeechTranslatorService {
     private speechClient: SpeechClient;
@@ -74,24 +79,34 @@ export class SpeechTranslatorService {
         }
     }
 
-    async generateAIResponse(prompt: string, languageCode: LanguageCode = 'en-US'): Promise<string> {
+    async generateAIResponse(
+        prompt: string,
+        languageCode: LanguageCode = 'en-US',
+        conversationHistory: ChatMessage[] = []
+    ): Promise<string> {
         try {
             const languageName = this.languageNames[languageCode];
+            // Construct the messages array with the correct type
+            const messages: ChatMessage[] = [
+                {
+                    role: 'system',
+                    content: `You are a helpful assistant who responds in ${languageName}. 
+                        Keep your responses natural, conversational, and concise.`
+                },
+                ...conversationHistory.map(msg => ({
+                    role: msg.role,
+                    content: msg.content
+                })),
+                {
+                    role: 'user',
+                    content: prompt
+                }
+            ];
 
             const chatCompletion = await this.openai.chat.completions.create({
                 model: this.MODEL_NAME,
-                messages: [
-                    {
-                        role: 'system',
-                        content: `You are a helpful assistant who responds in ${languageName}. 
-                                Keep your responses natural, conversational, and concise.`
-                    },
-                    {
-                        role: 'user',
-                        content: prompt
-                    }
-                ],
-                max_tokens: 150,
+                messages: messages,
+                max_tokens: 2048,
                 temperature: 0.7,
                 top_p: 0.9,
                 frequency_penalty: 0.0,

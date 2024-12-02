@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import io, { Socket } from 'socket.io-client';
+import { Mic, StopCircle, Volume2, Copy, RefreshCcw } from 'lucide-react';
 
 interface UsageStats {
   speechToText: {
@@ -39,6 +40,36 @@ export default function SpeechTranslator() {
   const [language, setLanguage] = useState<SupportedLanguage>('en-US');
   const [pitch, setPitch] = useState<number>(0);
   const [voiceType, setVoiceType] = useState<VoiceType>('standard-male');
+  const [conversationHistory, setConversationHistory] = useState<{ user: string; ai: string }[]>([]);
+
+  // Add state for animations
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [showCopiedFeedback, setShowCopiedFeedback] = useState(false);
+
+  // Copy to clipboard function with animation
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setShowCopiedFeedback(true);
+    setTimeout(() => setShowCopiedFeedback(false), 2000);
+  };
+
+  // Enhanced recording animations
+  const startRecordingWithAnimation = () => {
+    startRecording();
+    setIsAnimating(true);
+  };
+
+  // Mic animation component
+  const AnimatedMic = () => (
+    <div className={`transition-all duration-500 ${isRecording ? 'animate-pulse' : ''}`}>
+      {isRecording ? (
+        <div className="absolute inset-0 bg-red-500/20 animate-ping rounded-full"></div>
+      ) : null}
+      <Mic
+        className={`w-12 h-12 ${isRecording ? 'text-red-500' : 'text-blue-500'}`}
+      />
+    </div>
+  );
 
   // Voice options with proper typing
   const voiceOptions: Record<SupportedLanguage, Record<VoiceType, string>> = {
@@ -123,6 +154,9 @@ export default function SpeechTranslator() {
       setUsage(data.usage);
       setError(null);
 
+      // Update conversation history
+      setConversationHistory(prev => [...prev, { user: data.transcription, ai: data.aiResponse }]);
+
       if (data.audioBuffer && audioRef.current) {
         try {
           const blob = new Blob([data.audioBuffer], { type: 'audio/wav' });
@@ -191,12 +225,14 @@ export default function SpeechTranslator() {
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md bg-white shadow-md rounded-lg p-6">
-        <h1 className="text-2xl font-bold mb-4 text-center">
+        {/* Animated Title */}
+        <h1 className="text-3xl font-bold mb-4 text-center text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600 animate-text">
           Speech Assistant
         </h1>
 
+        {/* Error Handling with Animation */}
         {error && (
-          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
+          <div className="mb-4 p-3 bg-red-100 text-red-700 rounded animate-shake">
             {error}
           </div>
         )}
@@ -276,38 +312,89 @@ export default function SpeechTranslator() {
         </div>
 
         {/* Recording Button */}
-        <div className="flex justify-center space-x-4 mb-4">
-          {!isRecording ? (
-            <button
-              onClick={startRecording}
-              className="bg-blue-500 text-white px-4 py-2 rounded-full hover:bg-blue-600 transition"
-              disabled={!!error}
-            >
-              Start Recording
-            </button>
-          ) : (
-            <button
-              onClick={stopRecording}
-              className="bg-red-500 text-white px-4 py-2 rounded-full hover:bg-red-600 transition"
-            >
-              Stop Recording
-            </button>
-          )}
+        <div className="flex justify-center items-center space-x-4 mb-4 relative">
+          <div className="relative">
+            {!isRecording ? (
+              <button
+                onClick={startRecordingWithAnimation}
+                className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 transition-all transform hover:scale-110"
+                disabled={!!error}
+              >
+                <AnimatedMic />
+              </button>
+            ) : (
+              <button
+                onClick={stopRecording}
+                className="bg-red-500 text-white p-3 rounded-full hover:bg-red-600 transition-all transform hover:scale-110"
+              >
+                <StopCircle className="w-12 h-12" />
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* Conversation History */}
+        <div className="conversation-history mb-4">
+          {conversationHistory.map((entry, index) => (
+            <div key={index} className="mb-2">
+              <div className="font-semibold text-blue-600">You:</div>
+              <div className="text-gray-800">{entry.user}</div>
+              <div className="font-semibold text-green-600">AI:</div>
+              <div className="text-gray-800">{entry.ai}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Reset Conversation Button */}
+        <button
+          onClick={() => {
+            setConversationHistory([]);
+            setTranscription('');
+            setAiResponse('');
+            setUsage(null);
+            setError(null);
+          }}
+          className="bg-gray-500 text-white p-2 rounded hover:bg-gray-600 transition"
+        >
+          Reset Conversation
+        </button>
+
         {/* Transcription Display */}
+        {/* Enhanced Transcription and Response Display */}
         {transcription && (
-          <div className="mb-4 p-3 bg-gray-50 rounded">
-            <h2 className="font-semibold">Your Message:</h2>
-            <p>{transcription}</p>
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg shadow-inner relative">
+            <h2 className="font-semibold text-gray-700 mb-2">Your Message:</h2>
+            <p className="text-gray-800">{transcription}</p>
+            <button
+              onClick={() => copyToClipboard(transcription)}
+              className="absolute top-2 right-2 text-gray-500 hover:text-blue-500 transition"
+            >
+              <Copy className="w-5 h-5" />
+            </button>
+            {showCopiedFeedback && (
+              <div className="absolute -top-8 right-0 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                Copied!
+              </div>
+            )}
           </div>
         )}
 
         {/* AI Response Display */}
         {aiResponse && (
-          <div className="mb-4 p-3 bg-gray-50 rounded">
-            <h2 className="font-semibold">AI Response:</h2>
-            <p>{aiResponse}</p>
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg shadow-inner relative">
+            <h2 className="font-semibold text-gray-700 mb-2">AI Response:</h2>
+            <p className="text-gray-800">{aiResponse}</p>
+            <button
+              onClick={() => copyToClipboard(aiResponse)}
+              className="absolute top-2 right-2 text-gray-500 hover:text-blue-500 transition"
+            >
+              <Copy className="w-5 h-5" />
+            </button>
+            {showCopiedFeedback && (
+              <div className="absolute -top-8 right-0 bg-green-500 text-white text-xs px-2 py-1 rounded">
+                Copied!
+              </div>
+            )}
           </div>
         )}
 

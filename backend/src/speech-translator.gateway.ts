@@ -25,6 +25,11 @@ interface LanguageInfo {
     voices: Record<VoiceType, string>;
 }
 
+interface ChatMessage {
+    role: 'system' | 'user' | 'assistant';
+    content: string;
+}
+
 @Injectable()
 @WebSocketGateway({
     cors: {
@@ -37,6 +42,7 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
     server!: Server;
 
     private clientLanguages: Map<string, LanguageCode> = new Map();
+    private clientConversations = new Map<string, ChatMessage[]>();
 
     // Language configuration with voice options
     private readonly languageConfig: Record<LanguageCode, LanguageInfo> = {
@@ -93,17 +99,20 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
     constructor(
         private readonly speechTranslatorService: SpeechTranslatorService,
         private readonly usageTracker: UsageTrackerService
+
     ) { }
 
     handleConnection(client: Socket) {
         console.log(`Client connected: ${client.id}`);
         // Set default language
         this.clientLanguages.set(client.id, 'en-US');
+        this.clientConversations.set(client.id, []); // Initialize conversation history
     }
 
     handleDisconnect(client: Socket) {
         console.log(`Client disconnected: ${client.id}`);
         this.clientLanguages.delete(client.id);
+        this.clientConversations.delete(client.id); // Clean up conversation history
     }
 
     @SubscribeMessage('set-language')
@@ -134,11 +143,21 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
                 language
             );
 
-            // Generate AI response
+            // Retrieve the conversation history for the client
+            const conversationHistory = this.clientConversations.get(client.id) || [];
+
+            // Generate AI response with conversation history
             const aiResponse = await this.speechTranslatorService.generateAIResponse(
                 transcription,
-                language
+                language,
+                conversationHistory // Pass the conversation history correctly
             );
+
+            // Update conversation history
+            conversationHistory.push({ role: 'user', content: transcription });
+            conversationHistory.push({ role: 'assistant', content: aiResponse });
+            this.clientConversations.set(client.id, conversationHistory);
+            console.log(this.clientConversations);
 
             // Convert response to speech
             const speechResponse = await this.speechTranslatorService.textToSpeech({

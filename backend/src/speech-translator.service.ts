@@ -67,8 +67,7 @@ export class SpeechTranslatorService {
             const duration = Date.now() - startTime;
             this.usageTracker.trackSpeechToText(duration, true);
 
-            const transcript = response.results?.[0]?.alternatives?.[0]?.transcript || '';
-            return transcript;
+            return response.results?.[0]?.alternatives?.[0]?.transcript || '';
 
         } catch (error) {
             const duration = Date.now() - startTime;

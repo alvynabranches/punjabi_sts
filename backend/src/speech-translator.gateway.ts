@@ -228,7 +228,7 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
             return;
         }
 
-        const voices = this.languageConfig[language].voices;
+        const { voices } = this.languageConfig[language];
         client.emit('voice-options', { voices });
     }
 }

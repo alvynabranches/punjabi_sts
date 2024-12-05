@@ -248,7 +248,7 @@ export class UsageTrackerService {
 
     private calculateSuccessRate(usageLog: APIUsage[], type: APIUsage['type']): number {
         const typeUsage = usageLog.filter(u => u.type === type);
-        if (typeUsage.length === 0) return 100;
+        if (typeUsage.length === 0) { return 100 };
         const successful = typeUsage.filter(u => u.metadata.success).length;
         return (successful / typeUsage.length) * 100;
     }

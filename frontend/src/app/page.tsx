@@ -171,8 +171,10 @@ export default function SpeechTranslator() {
       }
     });
 
-    newSocket.on('error', (errorMsg: string) => {
-      setError(errorMsg);
+    newSocket.on('error', (errorMsg: string | { message: string }) => {
+      // Handle both string and error object cases
+      const errorString = typeof errorMsg === 'string' ? errorMsg : errorMsg.message;
+      setError(errorString);
     });
 
     return () => {

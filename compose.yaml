@@ -11,4 +11,4 @@ services:
     ports:
       - 3001:3001
     volumes:
-      - ./backend/google-cloud.json:/app/google-cloud.json
+      - ./google-cloud.json:/app/google-cloud.json

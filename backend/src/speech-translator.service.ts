@@ -2,7 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { SpeechClient } from '@google-cloud/speech';
 import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { UsageTrackerService } from './usage-tracker.service';
-import OpenAI from 'openai';
+import { OpenRouterService } from './services/openrouter.service';
+import { FireworksService } from './services/fireworks.service';
+import { OpenAI } from 'openai';
 
 // Define supported languages
 const SUPPORTED_LANGUAGES = ['en-US', 'hi-IN', 'pa-IN', 'mr-IN'] as const;
@@ -27,12 +29,15 @@ interface ChatMessage {
     content: string;
 }
 
+type ApiProvider = 'gpt' | 'openrouter' | 'fireworks';
+
 @Injectable()
 export class SpeechTranslatorService {
     private speechClient: SpeechClient;
     private textToSpeechClient: TextToSpeechClient;
     private openai: OpenAI;
     private readonly MODEL_NAME = 'gpt-4o-mini';
+    private apiProvider: ApiProvider = 'gpt';
 
     // Language name mapping with proper typing
     private readonly languageNames: Record<LanguageCode, string> = {
@@ -43,13 +48,20 @@ export class SpeechTranslatorService {
     };
 
     constructor(
-        private readonly usageTracker: UsageTrackerService
+        private readonly usageTracker: UsageTrackerService,
+        private readonly openRouterService: OpenRouterService,
+        private readonly fireworksService: FireworksService
     ) {
         this.speechClient = new SpeechClient();
         this.textToSpeechClient = new TextToSpeechClient();
         this.openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY
         });
+    }
+
+    setApiProvider(provider: ApiProvider): void {
+        this.apiProvider = provider;
+        console.log(`API provider set to: ${provider}`);
     }
 
     async transcribeSpeech(audioBuffer: Buffer, languageCode: LanguageCode = 'en-US'): Promise<string> {
@@ -102,23 +114,41 @@ export class SpeechTranslatorService {
                 }
             ];
 
-            const chatCompletion = await this.openai.chat.completions.create({
-                model: this.MODEL_NAME,
-                messages: messages,
-                max_tokens: 2048,
-                temperature: 0.7,
-                top_p: 0.9,
-                frequency_penalty: 0.0,
-                presence_penalty: 0.6
-            });
+            let response = '';
+            let modelName = '';
 
-            const response = chatCompletion.choices[0]?.message?.content || '';
+            switch (this.apiProvider) {
+                case 'openrouter':
+                    response = await this.openRouterService.generateResponse(messages);
+                    modelName = 'openrouter-qwen3';
+                    break;
+
+                case 'fireworks':
+                    response = await this.fireworksService.generateResponse(messages);
+                    modelName = 'fireworks-qwen3';
+                    break;
+
+                case 'gpt':
+                default:
+                    const chatCompletion = await this.openai.chat.completions.create({
+                        model: this.MODEL_NAME,
+                        messages: messages,
+                        max_tokens: 2048,
+                        temperature: 0.7,
+                        top_p: 0.9,
+                        frequency_penalty: 0.0,
+                        presence_penalty: 0.6
+                    });
+                    response = chatCompletion.choices[0]?.message?.content || '';
+                    modelName = this.MODEL_NAME;
+                    break;
+            }
 
             // Track successful API usage
             this.usageTracker.trackChatGPT(
                 prompt,
                 response,
-                this.MODEL_NAME,
+                modelName,
                 true
             );
 
@@ -127,10 +157,26 @@ export class SpeechTranslatorService {
         } catch (error) {
             const errorMessage = this.getErrorMessage(error);
             // Track failed API usage
+            let modelNameForTracking = '';
+            
+            // Determine the model name based on the API provider
+            switch (this.apiProvider) {
+                case 'openrouter':
+                    modelNameForTracking = 'openrouter-qwen3';
+                    break;
+                case 'fireworks':
+                    modelNameForTracking = 'fireworks-qwen3';
+                    break;
+                case 'gpt':
+                default:
+                    modelNameForTracking = this.MODEL_NAME;
+                    break;
+            }
+            
             this.usageTracker.trackChatGPT(
                 prompt,
                 '',
-                this.MODEL_NAME,
+                modelNameForTracking,
                 false,
                 errorMessage
             );

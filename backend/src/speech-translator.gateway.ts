@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
+import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect, MessageBody, ConnectedSocket } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { SpeechTranslatorService } from './speech-translator.service';
 import { UsageTrackerService } from './usage-tracker.service';
@@ -104,8 +104,9 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
 
     handleConnection(client: Socket) {
         console.log(`Client connected: ${client.id}`);
-        // Set default language
+        // Set default language and API provider
         this.clientLanguages.set(client.id, 'en-US');
+        client.data.apiProvider = 'openrouter';
         this.clientConversations.set(client.id, []); // Initialize conversation history
     }
 
@@ -116,7 +117,7 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
     }
 
     @SubscribeMessage('set-language')
-    handleSetLanguage(client: Socket, language: LanguageCode) {
+    handleSetLanguage(@MessageBody() language: LanguageCode, @ConnectedSocket() client: Socket) {
         if (!SUPPORTED_LANGUAGES.includes(language)) {
             client.emit('error', {
                 message: `Unsupported language. Supported languages are: ${SUPPORTED_LANGUAGES.join(', ')}`
@@ -124,11 +125,30 @@ export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDi
             return;
         }
         this.clientLanguages.set(client.id, language);
+        client.data.languageCode = language;
         console.log(`Client ${client.id} set language to ${language}`);
     }
 
+    @SubscribeMessage('set-api-provider')
+    handleSetApiProvider(
+        @MessageBody() provider: 'gpt' | 'openrouter' | 'fireworks',
+        @ConnectedSocket() client: Socket,
+    ) {
+        client.data.apiProvider = provider;
+        this.speechTranslatorService.setApiProvider(provider);
+        console.log(`API provider set to ${provider} for client ${client.id}`);
+    }
+
     @SubscribeMessage('speech-to-text')
-    async handleSpeechToText(client: Socket, payload: SpeechToTextPayload) {
+    async handleSpeechToText(
+        @MessageBody() payload: SpeechToTextPayload & { apiProvider?: 'gpt' | 'openrouter' | 'fireworks' },
+        @ConnectedSocket() client: Socket,
+    ) {
+        // Set API provider if provided in the request
+        if (payload.apiProvider) {
+            this.speechTranslatorService.setApiProvider(payload.apiProvider);
+            client.data.apiProvider = payload.apiProvider;
+        }
         try {
             const { audioBuffer, speakingRate = 1.0, pitch = 0, language, voiceName } = payload;
 

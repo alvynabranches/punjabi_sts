@@ -10,4 +10,4 @@ import { SpeechTranslatorGateway } from '../speech-translator.gateway';
     SpeechTranslatorGateway
   ]
 })
-export class AppModule {}
+export class AppModule { }

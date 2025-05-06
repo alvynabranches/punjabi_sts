@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import io, { Socket } from 'socket.io-client';
-import { Mic, StopCircle, Volume2, Copy, RefreshCcw } from 'lucide-react';
+import { Mic, StopCircle, Copy } from 'lucide-react';
 
 interface UsageStats {
   speechToText: {
@@ -15,13 +15,38 @@ interface UsageStats {
     totalOutputTokens: number;
     totalCost: number;
     successRate: number;
+    byProvider: {
+      openai: ProviderUsage;
+      openRouter: ProviderUsage;
+      fireworks: ProviderUsage;
+    };
   };
   textToSpeech: {
     totalCharacters: number;
     totalCost: number;
     successRate: number;
+    voiceTypes?: {
+      standard: VoiceTypeUsage;
+      wavenet: VoiceTypeUsage;
+      neural: VoiceTypeUsage;
+      journey: VoiceTypeUsage;
+    };
   };
   totalCost: number;
+}
+
+interface ProviderUsage {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number;
+  successRate: number;
+  count: number;
+}
+
+interface VoiceTypeUsage {
+  characters: number;
+  cost: number;
+  count: number;
 }
 
 export default function SpeechTranslator() {
@@ -40,6 +65,7 @@ export default function SpeechTranslator() {
   const [language, setLanguage] = useState<SupportedLanguage>('en-US');
   const [pitch, setPitch] = useState<number>(0);
   const [voiceType, setVoiceType] = useState<VoiceType>('standard-male');
+  const [apiProvider, setApiProvider] = useState<'gpt' | 'openrouter' | 'fireworks'>('openrouter');
   const [conversationHistory, setConversationHistory] = useState<{ user: string; ai: string }[]>([]);
 
   // Add state for animations
@@ -121,18 +147,28 @@ export default function SpeechTranslator() {
     }
   };
 
+  // API provider change handler
+  const handleApiProviderChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newProvider = event.target.value as 'gpt' | 'openrouter' | 'fireworks';
+    setApiProvider(newProvider);
+    if (socket) {
+      socket.emit('set-api-provider', newProvider);
+    }
+  };
+
   // Voice type change handler with proper typing
   const handleVoiceTypeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const newVoiceType = event.target.value as VoiceType;
     setVoiceType(newVoiceType);
   };
 
-  // Update socket connection with language
+  // Update socket connection with language and API provider
   useEffect(() => {
     if (socket) {
       socket.emit('set-language', language);
+      socket.emit('set-api-provider', apiProvider);
     }
-  }, [language, socket]);
+  }, [language, apiProvider, socket]);
 
   // Socket connection and event handling
   useEffect(() => {
@@ -155,14 +191,14 @@ export default function SpeechTranslator() {
       setError(null);
 
       // Update conversation history
-      setConversationHistory(prev => [...prev, { user: data.transcription, ai: data.aiResponse }]);
+      setConversationHistory((prev: { user: string; ai: string }[]) => [...prev, { user: data.transcription, ai: data.aiResponse }]);
 
       if (data.audioBuffer && audioRef.current) {
         try {
           const blob = new Blob([data.audioBuffer], { type: 'audio/wav' });
           const audioUrl = URL.createObjectURL(blob);
           audioRef.current.src = audioUrl;
-          audioRef.current.play().catch((playError) => {
+          audioRef.current.play().catch((playError: Error) => {
             setError(`Audio playback error: ${playError instanceof Error ? playError.message : 'Unknown error'}`);
           });
         } catch (audioError) {
@@ -189,7 +225,7 @@ export default function SpeechTranslator() {
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
 
-      mediaRecorderRef.current.ondataavailable = (event) => {
+      mediaRecorderRef.current.ondataavailable = (event: BlobEvent) => {
         audioChunksRef.current.push(event.data);
       };
 
@@ -201,7 +237,8 @@ export default function SpeechTranslator() {
             speakingRate,
             language,
             pitch,
-            voiceName: voiceOptions[language][voiceType]
+            voiceName: voiceOptions[language as SupportedLanguage][voiceType as VoiceType],
+            apiProvider
           });
         }
       };
@@ -254,6 +291,23 @@ export default function SpeechTranslator() {
             <option value="hi-IN">हिंदी</option>
             <option value="pa-IN">ਪੰਜਾਬੀ</option>
             <option value="mr-IN">मराठी</option>
+          </select>
+        </div>
+
+        {/* API Provider Selector */}
+        <div className="mb-6">
+          <label htmlFor="api-provider-select" className="block text-sm font-medium text-gray-700 mb-2">
+            AI Provider
+          </label>
+          <select
+            id="api-provider-select"
+            value={apiProvider}
+            onChange={handleApiProviderChange}
+            className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          >
+            <option value="gpt">OpenAI GPT</option>
+            <option value="openrouter">OpenRouter (Free)</option>
+            <option value="fireworks">Fireworks AI</option>
           </select>
         </div>
 
@@ -405,67 +459,135 @@ export default function SpeechTranslator() {
 
         {/* Usage Statistics */}
         {usage && (
-          <div className="mt-4 text-sm text-gray-600">
-            <h3 className="font-semibold mb-2">API Usage Statistics</h3>
+          <div className="mt-4 text-sm text-gray-600 border rounded-lg p-3 bg-white shadow-sm">
+            <h3 className="font-semibold mb-2 text-center text-blue-700 border-b pb-2">API Usage Statistics by Provider</h3>
 
             <div className="space-y-2">
               <div>
                 <h4 className="font-medium">Speech-to-Text</h4>
-                <table>
+                <table className="w-full text-xs border-collapse">
                   <thead>
-                    <tr>
-                      <th>Duration</th>
-                      <th>Cost</th>
-                      <th>Success Rate</th>
+                    <tr className="bg-gray-100">
+                      <th className="p-1 border">Duration</th>
+                      <th className="p-1 border">Cost</th>
+                      <th className="p-1 border">Success Rate</th>
                     </tr>
                   </thead>
                   <tbody><tr>
-                    <td>{usage.speechToText.totalDuration.toFixed(2)}s</td>
-                    <td>${usage.speechToText.totalCost.toFixed(4)}</td>
-                    <td>{usage.speechToText.successRate.toFixed(1)}%</td>
+                    <td className="p-1 border text-center">{usage.speechToText.totalDuration.toFixed(2)}s</td>
+                    <td className="p-1 border text-center">${usage.speechToText.totalCost.toFixed(4)}</td>
+                    <td className="p-1 border text-center">{usage.speechToText.successRate.toFixed(1)}%</td>
                   </tr></tbody>
                 </table>
               </div>
 
               <div>
                 <h4 className="font-medium">ChatGPT</h4>
-                <table>
-                  <thead><tr>
-                    <th>Model</th>
-                    <th>Input Tokens</th>
-                    <th>Output Tokens</th>
-                    <th>Cost</th>
-                    <th>Success Rate</th>
+                <table className="w-full text-xs border-collapse">
+                  <thead><tr className="bg-gray-100">
+                    <th className="p-1 border">Provider</th>
+                    <th className="p-1 border">Input Tokens</th>
+                    <th className="p-1 border">Output Tokens</th>
+                    <th className="p-1 border">Cost</th>
+                    <th className="p-1 border">Success Rate</th>
+                    <th className="p-1 border">Count</th>
                   </tr></thead>
                   <tbody>
-                    <tr>
-                      <td>{usage.chatGPT.totalInputTokens}</td>
-                      <td>{usage.chatGPT.totalOutputTokens}</td>
-                      <td>${usage.chatGPT.totalCost.toFixed(4)}</td>
-                      <td>{usage.chatGPT.successRate.toFixed(1)}%</td>
+                    <tr className="border-b">
+                      <td className="p-1 border font-medium">Total</td>
+                      <td className="p-1 border text-center">{usage.chatGPT.totalInputTokens}</td>
+                      <td className="p-1 border text-center">{usage.chatGPT.totalOutputTokens}</td>
+                      <td className="p-1 border text-center">${usage.chatGPT.totalCost.toFixed(4)}</td>
+                      <td className="p-1 border text-center">{usage.chatGPT.successRate.toFixed(1)}%</td>
+                      <td className="p-1 border text-center">-</td>
                     </tr>
+                    {usage.chatGPT.byProvider && (
+                      <>
+                        <tr className="bg-blue-50">
+                          <td className="p-1 border">OpenAI</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.totalInputTokens}</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.totalOutputTokens}</td>
+                          <td className="p-1 border text-center">${usage.chatGPT.byProvider.openai.totalCost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.successRate.toFixed(1)}%</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.count}</td>
+                        </tr>
+                        <tr className="bg-green-50">
+                          <td className="p-1 border">OpenRouter</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.totalInputTokens}</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.totalOutputTokens}</td>
+                          <td className="p-1 border text-center">${usage.chatGPT.byProvider.openRouter.totalCost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.successRate.toFixed(1)}%</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.count}</td>
+                        </tr>
+                        <tr className="bg-purple-50">
+                          <td className="p-1 border">Fireworks</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.totalInputTokens}</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.totalOutputTokens}</td>
+                          <td className="p-1 border text-center">${usage.chatGPT.byProvider.fireworks.totalCost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.successRate.toFixed(1)}%</td>
+                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.count}</td>
+                        </tr>
+                      </>
+                    )}
                   </tbody>
                 </table>
               </div>
 
               <div>
                 <h4 className="font-medium">Text-to-Speech</h4>
-                <table>
-                  <thead><tr>
-                    <th>Characters</th>
-                    <th>Cost</th>
-                    <th>Success Rate</th>
+                <table className="w-full text-xs border-collapse">
+                  <thead><tr className="bg-gray-100">
+                    <th className="p-1 border">Voice Type</th>
+                    <th className="p-1 border">Characters</th>
+                    <th className="p-1 border">Cost</th>
+                    <th className="p-1 border">Count</th>
                   </tr></thead>
-                  <tbody><tr>
-                    <td>{usage.textToSpeech.totalCharacters}</td>
-                    <td>${usage.textToSpeech.totalCost.toFixed(4)}</td>
-                    <td>{usage.textToSpeech.successRate.toFixed(1)}%</td>
-                  </tr></tbody>
+                  <tbody>
+                    <tr className="border-b">
+                      <td className="p-1 border font-medium">Total</td>
+                      <td className="p-1 border text-center">{usage.textToSpeech.totalCharacters}</td>
+                      <td className="p-1 border text-center">${usage.textToSpeech.totalCost.toFixed(4)}</td>
+                      <td className="p-1 border text-center">-</td>
+                    </tr>
+                    {usage.textToSpeech.voiceTypes && (
+                      <>
+                        <tr className="bg-blue-50">
+                          <td className="p-1 border">Standard</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.standard.characters}</td>
+                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.standard.cost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.standard.count}</td>
+                        </tr>
+                        <tr className="bg-green-50">
+                          <td className="p-1 border">Wavenet</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.wavenet.characters}</td>
+                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.wavenet.cost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.wavenet.count}</td>
+                        </tr>
+                        <tr className="bg-yellow-50">
+                          <td className="p-1 border">Neural</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.neural.characters}</td>
+                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.neural.cost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.neural.count}</td>
+                        </tr>
+                        <tr className="bg-purple-50">
+                          <td className="p-1 border">Journey</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.journey.characters}</td>
+                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.journey.cost.toFixed(4)}</td>
+                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.journey.count}</td>
+                        </tr>
+                      </>
+                    )}
+                  </tbody>
                 </table>
+                <div className="mt-1 text-xs text-right">
+                  Success Rate: {usage.textToSpeech.successRate.toFixed(1)}%
+                </div>
               </div>
 
-              <div className="pt-2 border-t">
-                <p className="font-medium">Total Cost: <b>${usage.totalCost.toFixed(4)}</b></p>
+              <div className="pt-2 border-t mt-4">
+                <p className="font-medium text-center bg-gray-100 p-2 rounded-md">
+                  Total Cost: <b className="text-blue-600">${usage.totalCost.toFixed(4)}</b>
+                </p>
               </div>
             </div>
           </div>

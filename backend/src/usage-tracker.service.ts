@@ -44,7 +44,11 @@ export class UsageTrackerService {
         GPT4O_INPUT_PER_1K_TOKENS: 0.01,
         GPT4O_OUTPUT_PER_1K_TOKENS: 0.03,
         GPT4O_MINI_INPUT_PER_1K_TOKENS: 0.005,
-        GPT4O_MINI_OUTPUT_PER_1K_TOKENS: 0.015
+        GPT4O_MINI_OUTPUT_PER_1K_TOKENS: 0.015,
+        OPENROUTER_INPUT_PER_1K_TOKENS: 0.0,  // OpenRouter is free
+        OPENROUTER_OUTPUT_PER_1K_TOKENS: 0.0, // OpenRouter is free
+        FIREWORKS_INPUT_PER_1K_TOKENS: 0.00022,  // $0.22 per 1M tokens
+        FIREWORKS_OUTPUT_PER_1K_TOKENS: 0.00088  // $0.88 per 1M tokens
     } as const;
 
     private readonly SUPPORTED_MODELS: Record<SupportedModel, TiktokenModel> = {
@@ -61,8 +65,24 @@ export class UsageTrackerService {
         return model in this.SUPPORTED_MODELS;
     }
 
-    private getModelCosts(model: SupportedModel) {
-        switch (model) {
+    private getModelCosts(model: SupportedModel | string) {
+        // Handle non-OpenAI models first
+        if (typeof model === 'string') {
+            if (model.startsWith('openrouter')) {
+                return {
+                    input: this.COSTS.OPENROUTER_INPUT_PER_1K_TOKENS,
+                    output: this.COSTS.OPENROUTER_OUTPUT_PER_1K_TOKENS
+                };
+            } else if (model.startsWith('fireworks')) {
+                return {
+                    input: this.COSTS.FIREWORKS_INPUT_PER_1K_TOKENS,
+                    output: this.COSTS.FIREWORKS_OUTPUT_PER_1K_TOKENS
+                };
+            }
+        }
+        
+        // Handle OpenAI models
+        switch (model as SupportedModel) {
             case 'gpt-4o':
                 return {
                     input: this.COSTS.GPT4O_INPUT_PER_1K_TOKENS,
@@ -83,7 +103,16 @@ export class UsageTrackerService {
 
     private countTokens(text: string, modelName: string = 'gpt-4'): number {
         try {
-            // Validate and get the model
+            // For non-OpenAI models (OpenRouter, Fireworks), use a standard tokenizer
+            if (modelName?.startsWith('openrouter') || modelName?.startsWith('fireworks')) {
+                // Use cl100k_base for most modern models as a reasonable approximation
+                const enc = encoding_for_model('gpt-4');
+                const tokens = enc.encode(text);
+                enc.free();
+                return tokens.length;
+            }
+            
+            // For OpenAI models, use the specific tokenizer
             const validModelName = this.isValidModel(modelName) ? modelName : 'gpt-4';
             const model = this.SUPPORTED_MODELS[validModelName];
 
@@ -93,7 +122,7 @@ export class UsageTrackerService {
             return tokens.length;
         } catch (error) {
             console.error('Error counting tokens:', error);
-            return Math.ceil(text.length / 4);
+            return Math.ceil(text.length / 4); // Fallback approximation
         }
     }
 
@@ -128,24 +157,43 @@ export class UsageTrackerService {
     }
 
     trackChatGPT(prompt: string, response: string, modelName: string, success: boolean, error?: string) {
-        // Validate model name
-        const validModelName = this.isValidModel(modelName) ? modelName : 'gpt-4';
-
-        const inputTokens = this.countTokens(prompt, validModelName);
-        const outputTokens = success ? this.countTokens(response, validModelName) : 0;
-        const modelCosts = this.getModelCosts(validModelName);
-
+        // Get input and output tokens
+        const inputTokens = this.countTokens(prompt);
+        const outputTokens = success ? this.countTokens(response) : 0;
+        
+        // Determine cost based on model/provider
+        let inputCost = 0;
+        let outputCost = 0;
+        let modelForMetadata = modelName;
+        
+        if (modelName.startsWith('openrouter')) {
+            // OpenRouter is free
+            inputCost = this.COSTS.OPENROUTER_INPUT_PER_1K_TOKENS;
+            outputCost = this.COSTS.OPENROUTER_OUTPUT_PER_1K_TOKENS;
+        } else if (modelName.startsWith('fireworks')) {
+            // Fireworks pricing
+            inputCost = this.COSTS.FIREWORKS_INPUT_PER_1K_TOKENS;
+            outputCost = this.COSTS.FIREWORKS_OUTPUT_PER_1K_TOKENS;
+        } else {
+            // Default to OpenAI GPT models
+            const validModelName = this.isValidModel(modelName) ? modelName : 'gpt-4';
+            const modelCosts = this.getModelCosts(validModelName);
+            inputCost = modelCosts.input;
+            outputCost = modelCosts.output;
+            modelForMetadata = validModelName;
+        }
+        
         const usage: APIUsage = {
             timestamp: new Date(),
             type: 'chatgpt',
             inputTokens,
             outputTokens,
             cost: (
-                (inputTokens / 1000) * modelCosts.input +
-                (outputTokens / 1000) * modelCosts.output
+                (inputTokens / 1000) * inputCost +
+                (outputTokens / 1000) * outputCost
             ),
             metadata: {
-                model: validModelName,
+                model: modelForMetadata,
                 inputLength: prompt.length,
                 outputLength: response.length,
                 success,
@@ -224,7 +272,12 @@ export class UsageTrackerService {
                 totalCost: usageLog
                     .filter(u => u.type === 'chatgpt')
                     .reduce((sum, usage) => sum + usage.cost, 0),
-                successRate: this.calculateSuccessRate(usageLog, 'chatgpt')
+                successRate: this.calculateSuccessRate(usageLog, 'chatgpt'),
+                byProvider: {
+                    openai: this.calculateProviderUsage(usageLog.filter(u => u.type === 'chatgpt'), 'openai'),
+                    openRouter: this.calculateProviderUsage(usageLog.filter(u => u.type === 'chatgpt'), 'openrouter'),
+                    fireworks: this.calculateProviderUsage(usageLog.filter(u => u.type === 'chatgpt'), 'fireworks')
+                }
             },
             textToSpeech: {
                 totalCharacters: textToSpeechUsage
@@ -252,6 +305,33 @@ export class UsageTrackerService {
         const successful = typeUsage.filter(u => u.metadata.success).length;
         return (successful / typeUsage.length) * 100;
     }
+    
+    private calculateProviderUsage(usageLog: APIUsage[], provider: 'openai' | 'openrouter' | 'fireworks') {
+        let filteredUsage: APIUsage[];
+        
+        if (provider === 'openai') {
+            // Filter for OpenAI models (not starting with openrouter or fireworks)
+            filteredUsage = usageLog.filter(u => 
+                u.metadata.model && 
+                !u.metadata.model.startsWith('openrouter') && 
+                !u.metadata.model.startsWith('fireworks')
+            );
+        } else {
+            // Filter for specific provider models
+            filteredUsage = usageLog.filter(u => 
+                u.metadata.model && u.metadata.model.startsWith(provider)
+            );
+        }
+        
+        return {
+            totalInputTokens: filteredUsage.reduce((sum, usage) => sum + (usage.inputTokens || 0), 0),
+            totalOutputTokens: filteredUsage.reduce((sum, usage) => sum + (usage.outputTokens || 0), 0),
+            totalCost: filteredUsage.reduce((sum, usage) => sum + usage.cost, 0),
+            successRate: filteredUsage.length > 0 ?
+                (filteredUsage.filter(u => u.metadata.success).length / filteredUsage.length) * 100 : 100,
+            count: filteredUsage.length
+        };
+    }
 
     private logUsage(usage: APIUsage) {
         console.log(`[${usage.timestamp.toISOString()}] API Usage:`, {
@@ -262,6 +342,8 @@ export class UsageTrackerService {
             ...(usage.outputTokens && { outputTokens: usage.outputTokens }),
             ...(usage.metadata.voiceType && { voiceType: usage.metadata.voiceType }),
             model: usage.metadata.model,
+            provider: usage.metadata.model?.startsWith('openrouter') ? 'OpenRouter (free)' : 
+                     usage.metadata.model?.startsWith('fireworks') ? 'Fireworks AI' : 'OpenAI',
             success: usage.metadata.success
         });
     }

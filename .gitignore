@@ -2,5 +2,5 @@ google-cloud.json
 .qodo
 .vscode
 .DS_Store
-test
+global_test
 .env*

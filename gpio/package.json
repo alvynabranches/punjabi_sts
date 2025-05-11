@@ -1,0 +1,28 @@
+{
+  "name": "punjabi-gpio-app",
+  "version": "1.0.0",
+  "description": "A Raspberry Pi GPIO application for Punjabi interaction, rebuilt in Node.js.",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "raspberry pi",
+    "gpio",
+    "punjabi",
+    "nodejs"
+  ],
+  "author": "Your Name",
+  "license": "ISC",
+  "dependencies": {
+    "@google-cloud/speech": "^6.5.0",
+    "@google-cloud/text-to-speech": "^5.3.0",
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "openai": "^4.52.7",
+    "onoff": "^6.0.3",
+    "node-record-lpcm16": "^1.0.1",
+    "play-sound": "^1.1.6"
+  }
+}

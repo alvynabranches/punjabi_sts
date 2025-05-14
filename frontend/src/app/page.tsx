@@ -62,10 +62,10 @@ export default function SpeechTranslator() {
   const [socket, setSocket] = useState<typeof Socket | null>(null);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [speakingRate, setSpeakingRate] = useState<number>(1.0);
-  const [language, setLanguage] = useState<SupportedLanguage>('en-US');
+  const [language, setLanguage] = useState<SupportedLanguage>('pa-IN');
   const [pitch, setPitch] = useState<number>(0);
-  const [voiceType, setVoiceType] = useState<VoiceType>('standard-male');
-  const [apiProvider, setApiProvider] = useState<'gpt' | 'openrouter' | 'fireworks'>('openrouter');
+  const [voiceType, setVoiceType] = useState<VoiceType>('wavenet-male');
+  const [apiProvider, setApiProvider] = useState<'gpt' | 'openrouter' | 'fireworks'>('fireworks');
   const [conversationHistory, setConversationHistory] = useState<{ user: string; ai: string }[]>([]);
 
   // Add state for animations

@@ -5,6 +5,7 @@ services:
       - backend
     ports:
       - 3000:3000
+    restart: always
 
   backend:
     build: backend/.
@@ -12,3 +13,4 @@ services:
       - 3001:3001
     volumes:
       - ./google-cloud.json:/app/google-cloud.json
+    restart: always

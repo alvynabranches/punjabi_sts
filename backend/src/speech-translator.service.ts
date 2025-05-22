@@ -4,6 +4,7 @@ import { TextToSpeechClient } from '@google-cloud/text-to-speech';
 import { UsageTrackerService } from './usage-tracker.service';
 import { OpenRouterService } from './services/openrouter.service';
 import { FireworksService } from './services/fireworks.service';
+import { RagService } from './services/rag.service';
 import { OpenAI } from 'openai';
 
 // Define supported languages
@@ -38,6 +39,7 @@ export class SpeechTranslatorService {
     private openai: OpenAI;
     private readonly MODEL_NAME = 'gpt-4o-mini';
     private apiProvider: ApiProvider = 'gpt';
+    private useRag: boolean = true; // Flag to enable/disable RAG
 
     // Language name mapping with proper typing
     private readonly languageNames: Record<LanguageCode, string> = {
@@ -50,7 +52,8 @@ export class SpeechTranslatorService {
     constructor(
         private readonly usageTracker: UsageTrackerService,
         private readonly openRouterService: OpenRouterService,
-        private readonly fireworksService: FireworksService
+        private readonly fireworksService: FireworksService,
+        private readonly ragService: RagService
     ) {
         this.speechClient = new SpeechClient();
         this.textToSpeechClient = new TextToSpeechClient();
@@ -62,6 +65,11 @@ export class SpeechTranslatorService {
     setApiProvider(provider: ApiProvider): void {
         this.apiProvider = provider;
         console.log(`API provider set to: ${provider}`);
+    }
+
+    setUseRag(useRag: boolean): void {
+        this.useRag = useRag;
+        console.log(`RAG system ${useRag ? 'enabled' : 'disabled'}`);
     }
 
     async transcribeSpeech(audioBuffer: Buffer, languageCode: LanguageCode = 'en-US'): Promise<string> {
@@ -96,23 +104,60 @@ export class SpeechTranslatorService {
         conversationHistory: ChatMessage[] = []
     ): Promise<string> {
         try {
+            // Check if we should use RAG for this query
+            let ragContext = '';
+            if (this.useRag && this.isGurbaniQuery(prompt, languageCode)) {
+                try {
+                    // Search for relevant Gurbani passages
+                    const searchResults = await this.ragService.searchGurbani(prompt, 10);
+                    
+                    if (searchResults.length > 0) {
+                        // Format the search results into a readable context
+                        ragContext = this.ragService.formatSearchResults(searchResults, languageCode);
+                        console.log('RAG context generated successfully');
+                    }
+                } catch (error) {
+                    console.error('Error generating RAG context:', error);
+                    // Continue without RAG if there's an error
+                }
+            }
+
             const languageName = this.languageNames[languageCode];
+            
             // Construct the messages array with the correct type
-            const messages: ChatMessage[] = [
-                {
+            const messages: ChatMessage[] = [];
+            
+            // If RAG is enabled and we have context, use a special prompt format
+            if (this.useRag && ragContext) {
+                messages.push({
+                    role: 'system',
+                    content: `You are a helpful assistant who responds in Punjabi only.`
+                });
+                
+                messages.push({
+                    role: 'user',
+                    content: `${prompt}\n\n${ragContext}\n\nReturn the results in Punjabi only.`
+                });
+            } else {
+                // Standard prompt without RAG
+                messages.push({
                     role: 'system',
                     content: `You are a helpful assistant who responds in ${languageName}. 
                         Keep your responses natural, conversational, and concise.`
-                },
-                ...conversationHistory.map(msg => ({
+                });
+                
+                // Add conversation history
+                messages.push(...conversationHistory.map(msg => ({
                     role: msg.role,
                     content: msg.content
-                })),
-                {
+                })));
+                
+                // Add the user's prompt
+                messages.push({
                     role: 'user',
                     content: prompt
-                }
-            ];
+                });
+            }
 
             let response = '';
             let modelName = '';
@@ -185,6 +230,28 @@ export class SpeechTranslatorService {
         }
     }
 
+    // Helper method to determine if a query is related to Gurbani
+    private isGurbaniQuery(prompt: string, languageCode: LanguageCode): boolean {
+        // Always return true when RAG is enabled to use Gurbani knowledge for all queries
+        return true;
+        
+        // The following code is commented out as we now want to use RAG for all queries
+        /*
+        // Simple heuristic: check if the query contains Gurbani-related keywords
+        const englishKeywords = ['gurbani', 'guru', 'granth', 'sahib', 'sikh', 'sikhism', 'waheguru', 'khalsa'];
+        const punjabiKeywords = ['ਗੁਰਬਾਣੀ', 'ਗੁਰੂ', 'ਗ੍ਰੰਥ', 'ਸਾਹਿਬ', 'ਸਿੱਖ', 'ਸਿੱਖੀ', 'ਵਾਹਿਗੁਰੂ', 'ਖਾਲਸਾ'];
+        
+        const lowercasePrompt = prompt.toLowerCase();
+        
+        if (languageCode === 'pa-IN') {
+            return punjabiKeywords.some(keyword => prompt.includes(keyword)) || 
+                   englishKeywords.some(keyword => lowercasePrompt.includes(keyword));
+        } else {
+            return englishKeywords.some(keyword => lowercasePrompt.includes(keyword));
+        }
+        */
+    }
+
     async textToSpeech({
         text,
         speakingRate = 1.0,
@@ -235,30 +302,22 @@ export class SpeechTranslatorService {
                 return 'mr-IN-Standard-A';
             case 'en-US':  // English
             default:
-                return 'en-IN-Standard-A';
+                return 'en-US-Standard-A';
         }
     }
 
     private getErrorMessage(error: unknown): string {
         if (error instanceof Error) {
             return error.message;
-        }
-        if (typeof error === 'object' && error !== null) {
+        } else if (typeof error === 'object' && error !== null) {
             const apiError = error as APIError;
-            if ('message' in apiError) {
-                return apiError.message;
-            }
+            return apiError.message || 'Unknown error';
+        } else {
+            return String(error);
         }
-        return 'An unknown error occurred';
     }
 
-    // Helper method to get usage statistics
     getUsageStats() {
         return this.usageTracker.getUsageSummary();
-    }
-
-    // Helper method to validate language code
-    private isValidLanguage(languageCode: string): languageCode is LanguageCode {
-        return SUPPORTED_LANGUAGES.includes(languageCode as LanguageCode);
     }
 }

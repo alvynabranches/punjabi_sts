@@ -1,4 +1,3 @@
-import { Injectable } from '@nestjs/common';
 import { WebSocketGateway, WebSocketServer, SubscribeMessage, OnGatewayConnection, OnGatewayDisconnect, MessageBody, ConnectedSocket } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { SpeechTranslatorService } from './speech-translator.service';
@@ -8,21 +7,12 @@ import { UsageTrackerService } from './usage-tracker.service';
 const SUPPORTED_LANGUAGES = ['en-US', 'hi-IN', 'pa-IN', 'mr-IN'] as const;
 type LanguageCode = typeof SUPPORTED_LANGUAGES[number];
 
-// Define voice types
-type VoiceType = 'standard-female' | 'standard-male' | 'neural-female' | 'neural-male' | 'wavenet-female' | 'wavenet-male';
-
 interface SpeechToTextPayload {
     audioBuffer: Buffer;
+    language: LanguageCode;
     speakingRate?: number;
     pitch?: number;
-    language: LanguageCode;
     voiceName?: string;
-}
-
-interface LanguageInfo {
-    code: LanguageCode;
-    name: string;
-    voices: Record<VoiceType, string>;
 }
 
 interface ChatMessage {
@@ -30,24 +20,31 @@ interface ChatMessage {
     content: string;
 }
 
-@Injectable()
+interface LanguageInfo {
+    code: LanguageCode;
+    name: string;
+    voices: Record<string, string>;
+}
+
+type VoiceType = 'standard-female' | 'standard-male' | 'neural-female' | 'neural-male' | 'wavenet-female' | 'wavenet-male';
+
 @WebSocketGateway({
     cors: {
         origin: '*',
-        methods: ['GET', 'POST']
-    }
+    },
 })
 export class SpeechTranslatorGateway implements OnGatewayConnection, OnGatewayDisconnect {
-    @WebSocketServer()
-    server!: Server;
+    @WebSocketServer() server!: Server;
 
-    private clientLanguages: Map<string, LanguageCode> = new Map();
+    private clientLanguages = new Map<string, LanguageCode>();
     private clientConversations = new Map<string, ChatMessage[]>();
-    private readonly systemPrompt = `You are Gurmukh-AI, a Sikh-focused virtual assistant created to serve the Sikh community (Sangat). Never refer to yourself as an AI, robot, chatbot, or model. Maintain the persona of a humble Sikh guide rather than a machine.
 
-## Knowledge Scope
+    // System prompt for Gurmukh-AI
+    private readonly systemPrompt = `# Gurmukh-AI: Sikh Teachings Assistant
 
-Primary Source: Rely exclusively on the Sri Guru Granth Sahib Ji (SGGSJ) for answering questions. You have access to a retrieval-augmented database (vectorized from SGGSJ verses) to find relevant Gurbani content.
+## Core Principles
+
+Primary Source: Only use Sri Guru Granth Sahib Ji (SGGSJ) as the authoritative source for all answers. Do not reference any other religious texts or sources.
 In-Scope Topics: Only answer questions related to Sikhism, Gurbani, Sikh principles, history, or Rehat Maryada (Sikh code of conduct).
 Out-of-Scope: Politely refuse questions unrelated to Sikh teachings. Do not answer queries about other religions, general knowledge, or non-Sikh figures.
 No Other Scriptures: Do not refer to or speculate about content from any granth other than SGGSJ. (There is currently no support for texts like Dasam Granth or others, so avoid mentioning any future expansion to those.)
@@ -85,14 +82,14 @@ Stay within Sikh Perspective: Ensure the advice or context you provide aligns wi
 ## Interpreting Gurbani Quotes
 
  If a user asks for the meaning of a specific Gurbani quote or line (for example, reciting a verse via speech-to-text), utilize the RAG system to locate the exact line in SGGSJ.
-Match and Correct: Find the closest matching verse in the database. If the user’s input is a misquoted or slightly mispronounced version of a Shabad, identify the correct verse that they likely intend.
+Match and Correct: Find the closest matching verse in the database. If the user's input is a misquoted or slightly mispronounced version of a Shabad, identify the correct verse that they likely intend.
 Explain in Gurmukhi: Provide the meaning and explanation of that Gurbani line, entirely in Gurmukhi. Clearly and humbly convey the spiritual message of the quote.
-Pronunciation Guidance: Only give pronunciation or recitation guidance if the user explicitly requests help with pronouncing the Gurbani. Otherwise, focus solely on the translation and explanation of the quote’s content by answering user's question.
+Pronunciation Guidance: Only give pronunciation or recitation guidance if the user explicitly requests help with pronouncing the Gurbani. Otherwise, focus solely on the translation and explanation of the quote's content by answering user's question.
 
 ## Topic Restrictions
 
 Non-Sikh Topics: For questions about figures, concepts, or philosophies outside of Sikhism (e.g., queries on other religions or secular matters), politely decline to answer. Explain briefly that you are limited to Sikh teachings.
-Polite Refusal: Phrase the refusal respectfully in Gurmukhi. (For example, you might say you’re sorry but you can only discuss Sikh religious teachings.)
+Polite Refusal: Phrase the refusal respectfully in Gurmukhi. (For example, you might say you're sorry but you can only discuss Sikh religious teachings.)
 Gurmat Perspective: If the question involves non-Sikh elements that are mentioned within Gurbani (such as avatars, Vedas, or mythological references that appear in Sikh scripture), you may address them. However, frame the explanation from a Sikh perspective (Gurmat), clarifying how Gurbani views or uses those concepts, rather than endorsing the non-Sikh viewpoint.
 
 ## Greeting Policy
@@ -121,12 +118,12 @@ By following all the above guidelines, you will provide consistent, respectful, 
             code: 'en-US',
             name: 'English',
             voices: {
-                'standard-female': 'en-IN-Standard-A',
-                'standard-male': 'en-IN-Standard-B',
-                'neural-female': 'en-IN-Neural2-A',
-                'neural-male': 'en-IN-Neural2-B',
-                'wavenet-female': 'en-IN-Wavenet-A',
-                'wavenet-male': 'en-IN-Wavenet-B'
+                'standard-female': 'en-US-Standard-A',
+                'standard-male': 'en-US-Standard-B',
+                'neural-female': 'en-US-Neural2-A',
+                'neural-male': 'en-US-Neural2-B',
+                'wavenet-female': 'en-US-Wavenet-A',
+                'wavenet-male': 'en-US-Wavenet-B'
             }
         },
         'hi-IN': {
@@ -178,6 +175,7 @@ By following all the above guidelines, you will provide consistent, respectful, 
         // Set default language and API provider
         this.clientLanguages.set(client.id, 'en-US');
         client.data.apiProvider = 'openrouter';
+        client.data.useRag = true; // Default RAG to enabled
         if (this.clientLanguages.get(client.id) === 'pa-IN') {
             this.clientConversations.set(client.id, [{ role: 'system', content: this.systemPrompt }]); // Initialize conversation history
         } else {
@@ -214,9 +212,19 @@ By following all the above guidelines, you will provide consistent, respectful, 
         console.log(`API provider set to ${provider} for client ${client.id}`);
     }
 
+    @SubscribeMessage('toggle-rag')
+    handleToggleRag(
+        @MessageBody() useRag: boolean,
+        @ConnectedSocket() client: Socket,
+    ) {
+        client.data.useRag = useRag;
+        this.speechTranslatorService.setUseRag(useRag);
+        console.log(`RAG system ${useRag ? 'enabled' : 'disabled'} for client ${client.id}`);
+    }
+
     @SubscribeMessage('speech-to-text')
     async handleSpeechToText(
-        @MessageBody() payload: SpeechToTextPayload & { apiProvider?: 'gpt' | 'openrouter' | 'fireworks' },
+        @MessageBody() payload: SpeechToTextPayload & { apiProvider?: 'gpt' | 'openrouter' | 'fireworks'; useRag?: boolean },
         @ConnectedSocket() client: Socket,
     ) {
         // Set API provider if provided in the request
@@ -224,6 +232,13 @@ By following all the above guidelines, you will provide consistent, respectful, 
             this.speechTranslatorService.setApiProvider(payload.apiProvider);
             client.data.apiProvider = payload.apiProvider;
         }
+
+        // Set RAG usage if provided in the request
+        if (payload.useRag !== undefined) {
+            this.speechTranslatorService.setUseRag(payload.useRag);
+            client.data.useRag = payload.useRag;
+        }
+
         try {
             const { audioBuffer, speakingRate = 1.0, pitch = 0, language, voiceName } = payload;
 

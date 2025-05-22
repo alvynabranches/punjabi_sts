@@ -21,19 +21,19 @@ services:
       - 6333:6333
       - 6334:6334
     volumes:
-      - qdrant_data:/qdrant/storage
+      - ./qdrant/storage:/qdrant/storage
     restart: always
 
-  tigergraph:
-    image: tigergraph/tigergraph:3.10.0
-    ports:
-      - 9000:9000
-      - 14022:22
-      - 14240:14240
-    volumes:
-      - tigergraph_data:/home/tigergraph/tigergraph/data
-    restart: always
+  # tigergraph:
+  #   image: tigergraph/tigergraph:3.10.0
+  #   ports:
+  #     - 9000:9000
+  #     - 14022:22
+  #     - 14240:14240
+  #   volumes:
+  #     - tigergraph_data:/home/tigergraph/tigergraph/data
+  #   restart: always
 
-volumes:
-  qdrant_data:
-  tigergraph_data:
+# volumes:
+  # qdrant_data:
+  # tigergraph_data:

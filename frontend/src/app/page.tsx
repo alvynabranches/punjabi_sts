@@ -67,6 +67,7 @@ export default function SpeechTranslator() {
   const [voiceType, setVoiceType] = useState<VoiceType>('wavenet-male');
   const [apiProvider, setApiProvider] = useState<'gpt' | 'openrouter' | 'fireworks'>('fireworks');
   const [conversationHistory, setConversationHistory] = useState<{ user: string; ai: string }[]>([]);
+  const [useRag, setUseRag] = useState<boolean>(true); // New state for RAG toggle
 
   // Add state for animations
   const [isAnimating, setIsAnimating] = useState(false);
@@ -100,12 +101,12 @@ export default function SpeechTranslator() {
   // Voice options with proper typing
   const voiceOptions: Record<SupportedLanguage, Record<VoiceType, string>> = {
     'en-US': {
-      'standard-female': 'en-IN-Standard-A',
-      'standard-male': 'en-IN-Standard-B',
-      'neural-female': 'en-IN-Neural2-A',
-      'neural-male': 'en-IN-Neural2-B',
-      'wavenet-female': 'en-IN-Wavenet-A',
-      'wavenet-male': 'en-IN-Wavenet-B',
+      'standard-female': 'en-US-Standard-A',
+      'standard-male': 'en-US-Standard-B',
+      'neural-female': 'en-US-Neural2-A',
+      'neural-male': 'en-US-Neural2-B',
+      'wavenet-female': 'en-US-Wavenet-A',
+      'wavenet-male': 'en-US-Wavenet-B',
     },
     'hi-IN': {
       'standard-female': 'hi-IN-Standard-A',
@@ -162,13 +163,23 @@ export default function SpeechTranslator() {
     setVoiceType(newVoiceType);
   };
 
+  // RAG toggle handler
+  const handleRagToggle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newUseRag = event.target.checked;
+    setUseRag(newUseRag);
+    if (socket) {
+      socket.emit('toggle-rag', newUseRag);
+    }
+  };
+
   // Update socket connection with language and API provider
   useEffect(() => {
     if (socket) {
       socket.emit('set-language', language);
       socket.emit('set-api-provider', apiProvider);
+      socket.emit('toggle-rag', useRag);
     }
-  }, [language, apiProvider, socket]);
+  }, [language, apiProvider, useRag, socket]);
 
   // Socket connection and event handling
   useEffect(() => {
@@ -196,6 +207,7 @@ export default function SpeechTranslator() {
       // Re-establish settings after reconnection
       newSocket.emit('set-language', language);
       newSocket.emit('set-api-provider', apiProvider);
+      newSocket.emit('toggle-rag', useRag);
     });
 
     newSocket.on('text-to-speech', (data: {
@@ -257,7 +269,8 @@ export default function SpeechTranslator() {
             language,
             pitch,
             voiceName: voiceOptions[language as SupportedLanguage][voiceType as VoiceType],
-            apiProvider
+            apiProvider,
+            useRag
           });
         }
       };
@@ -328,6 +341,26 @@ export default function SpeechTranslator() {
             <option value="openrouter">OpenRouter (Free)</option>
             <option value="fireworks">Fireworks AI</option>
           </select>
+        </div>
+
+        {/* RAG Toggle Switch */}
+        <div className="mb-6 flex items-center justify-between">
+          <label htmlFor="rag-toggle" className="text-sm font-medium text-gray-700">
+            Enable Gurbani Knowledge Base
+          </label>
+          <div className="relative inline-block w-12 mr-2 align-middle select-none">
+            <input
+              type="checkbox"
+              id="rag-toggle"
+              checked={useRag}
+              onChange={handleRagToggle}
+              className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out"
+            />
+            <label
+              htmlFor="rag-toggle"
+              className={`toggle-label block overflow-hidden h-6 rounded-full cursor-pointer ${useRag ? 'bg-blue-500' : 'bg-gray-300'}`}
+            ></label>
+          </div>
         </div>
 
         {/* Voice Type Selector */}
@@ -408,210 +441,122 @@ export default function SpeechTranslator() {
           </div>
         </div>
 
-        {/* Conversation History */}
-        <div className="conversation-history mb-4">
-          {conversationHistory.map((entry, index) => (
-            <div key={index} className="mb-2">
-              <div className="font-semibold text-blue-600">You:</div>
-              <div className="text-gray-800">{entry.user}</div>
-              <div className="font-semibold text-green-600">AI:</div>
-              <div className="text-gray-800">{entry.ai}</div>
-            </div>
-          ))}
-        </div>
-
-        {/* Reset Conversation Button */}
-        <button
-          onClick={() => {
-            setConversationHistory([]);
-            setTranscription('');
-            setAiResponse('');
-            setUsage(null);
-            setError(null);
-          }}
-          className="bg-gray-500 text-white p-2 rounded hover:bg-gray-600 transition"
-        >
-          Reset Conversation
-        </button>
-
         {/* Transcription Display */}
-        {/* Enhanced Transcription and Response Display */}
         {transcription && (
-          <div className="mb-4 p-4 bg-gray-50 rounded-lg shadow-inner relative">
-            <h2 className="font-semibold text-gray-700 mb-2">Your Message:</h2>
+          <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-sm font-semibold text-gray-500">You said:</h3>
+              <button
+                onClick={() => copyToClipboard(transcription)}
+                className="text-gray-400 hover:text-gray-600"
+                title="Copy to clipboard"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
             <p className="text-gray-800">{transcription}</p>
-            <button
-              onClick={() => copyToClipboard(transcription)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-blue-500 transition"
-            >
-              <Copy className="w-5 h-5" />
-            </button>
-            {showCopiedFeedback && (
-              <div className="absolute -top-8 right-0 bg-green-500 text-white text-xs px-2 py-1 rounded">
-                Copied!
-              </div>
-            )}
           </div>
         )}
 
         {/* AI Response Display */}
         {aiResponse && (
-          <div className="mb-4 p-4 bg-gray-50 rounded-lg shadow-inner relative">
-            <h2 className="font-semibold text-gray-700 mb-2">AI Response:</h2>
-            <p className="text-gray-800">{aiResponse}</p>
-            <button
-              onClick={() => copyToClipboard(aiResponse)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-blue-500 transition"
-            >
-              <Copy className="w-5 h-5" />
-            </button>
-            {showCopiedFeedback && (
-              <div className="absolute -top-8 right-0 bg-green-500 text-white text-xs px-2 py-1 rounded">
-                Copied!
-              </div>
-            )}
+          <div className="p-4 bg-blue-50 rounded-lg border border-blue-200 relative">
+            <div className="flex justify-between items-start mb-2">
+              <h3 className="text-sm font-semibold text-blue-500">Response:</h3>
+              <button
+                onClick={() => copyToClipboard(aiResponse)}
+                className="text-gray-400 hover:text-gray-600"
+                title="Copy to clipboard"
+              >
+                <Copy className="w-4 h-4" />
+                {showCopiedFeedback && (
+                  <span className="absolute top-0 right-0 mt-8 mr-2 px-2 py-1 bg-gray-800 text-white text-xs rounded animate-fade-in-out">
+                    Copied!
+                  </span>
+                )}
+              </button>
+            </div>
+            <p className="text-gray-800 whitespace-pre-line">{aiResponse}</p>
           </div>
         )}
 
-        {/* Audio Element */}
-        <audio ref={audioRef} controls className="w-full mt-4" />
+        {/* Audio Element (Hidden) */}
+        <audio ref={audioRef} className="hidden" controls />
 
-        {/* Usage Statistics */}
-        {usage && (
-          <div className="mt-4 text-sm text-gray-600 border rounded-lg p-3 bg-white shadow-sm">
-            <h3 className="font-semibold mb-2 text-center text-blue-700 border-b pb-2">API Usage Statistics by Provider</h3>
-
-            <div className="space-y-2">
-              <div>
-                <h4 className="font-medium">Speech-to-Text</h4>
-                <table className="w-full text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="p-1 border">Duration</th>
-                      <th className="p-1 border">Cost</th>
-                      <th className="p-1 border">Success Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody><tr>
-                    <td className="p-1 border text-center">{usage.speechToText.totalDuration.toFixed(2)}s</td>
-                    <td className="p-1 border text-center">${usage.speechToText.totalCost.toFixed(4)}</td>
-                    <td className="p-1 border text-center">{usage.speechToText.successRate.toFixed(1)}%</td>
-                  </tr></tbody>
-                </table>
-              </div>
-
-              <div>
-                <h4 className="font-medium">ChatGPT</h4>
-                <table className="w-full text-xs border-collapse">
-                  <thead><tr className="bg-gray-100">
-                    <th className="p-1 border">Provider</th>
-                    <th className="p-1 border">Input Tokens</th>
-                    <th className="p-1 border">Output Tokens</th>
-                    <th className="p-1 border">Cost</th>
-                    <th className="p-1 border">Success Rate</th>
-                    <th className="p-1 border">Count</th>
-                  </tr></thead>
-                  <tbody>
-                    <tr className="border-b">
-                      <td className="p-1 border font-medium">Total</td>
-                      <td className="p-1 border text-center">{usage.chatGPT.totalInputTokens}</td>
-                      <td className="p-1 border text-center">{usage.chatGPT.totalOutputTokens}</td>
-                      <td className="p-1 border text-center">${usage.chatGPT.totalCost.toFixed(4)}</td>
-                      <td className="p-1 border text-center">{usage.chatGPT.successRate.toFixed(1)}%</td>
-                      <td className="p-1 border text-center">-</td>
-                    </tr>
-                    {usage.chatGPT.byProvider && (
-                      <>
-                        <tr className="bg-blue-50">
-                          <td className="p-1 border">OpenAI</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.totalInputTokens}</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.totalOutputTokens}</td>
-                          <td className="p-1 border text-center">${usage.chatGPT.byProvider.openai.totalCost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.successRate.toFixed(1)}%</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openai.count}</td>
-                        </tr>
-                        <tr className="bg-green-50">
-                          <td className="p-1 border">OpenRouter</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.totalInputTokens}</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.totalOutputTokens}</td>
-                          <td className="p-1 border text-center">${usage.chatGPT.byProvider.openRouter.totalCost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.successRate.toFixed(1)}%</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.openRouter.count}</td>
-                        </tr>
-                        <tr className="bg-purple-50">
-                          <td className="p-1 border">Fireworks</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.totalInputTokens}</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.totalOutputTokens}</td>
-                          <td className="p-1 border text-center">${usage.chatGPT.byProvider.fireworks.totalCost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.successRate.toFixed(1)}%</td>
-                          <td className="p-1 border text-center">{usage.chatGPT.byProvider.fireworks.count}</td>
-                        </tr>
-                      </>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              <div>
-                <h4 className="font-medium">Text-to-Speech</h4>
-                <table className="w-full text-xs border-collapse">
-                  <thead><tr className="bg-gray-100">
-                    <th className="p-1 border">Voice Type</th>
-                    <th className="p-1 border">Characters</th>
-                    <th className="p-1 border">Cost</th>
-                    <th className="p-1 border">Count</th>
-                  </tr></thead>
-                  <tbody>
-                    <tr className="border-b">
-                      <td className="p-1 border font-medium">Total</td>
-                      <td className="p-1 border text-center">{usage.textToSpeech.totalCharacters}</td>
-                      <td className="p-1 border text-center">${usage.textToSpeech.totalCost.toFixed(4)}</td>
-                      <td className="p-1 border text-center">-</td>
-                    </tr>
-                    {usage.textToSpeech.voiceTypes && (
-                      <>
-                        <tr className="bg-blue-50">
-                          <td className="p-1 border">Standard</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.standard.characters}</td>
-                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.standard.cost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.standard.count}</td>
-                        </tr>
-                        <tr className="bg-green-50">
-                          <td className="p-1 border">Wavenet</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.wavenet.characters}</td>
-                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.wavenet.cost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.wavenet.count}</td>
-                        </tr>
-                        <tr className="bg-yellow-50">
-                          <td className="p-1 border">Neural</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.neural.characters}</td>
-                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.neural.cost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.neural.count}</td>
-                        </tr>
-                        <tr className="bg-purple-50">
-                          <td className="p-1 border">Journey</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.journey.characters}</td>
-                          <td className="p-1 border text-center">${usage.textToSpeech.voiceTypes.journey.cost.toFixed(4)}</td>
-                          <td className="p-1 border text-center">{usage.textToSpeech.voiceTypes.journey.count}</td>
-                        </tr>
-                      </>
-                    )}
-                  </tbody>
-                </table>
-                <div className="mt-1 text-xs text-right">
-                  Success Rate: {usage.textToSpeech.successRate.toFixed(1)}%
+        {/* Conversation History */}
+        {conversationHistory.length > 1 && (
+          <div className="mt-8">
+            <h3 className="text-lg font-semibold mb-4 text-gray-700">Conversation History</h3>
+            <div className="space-y-4 max-h-96 overflow-y-auto p-2">
+              {conversationHistory.map((exchange, index) => (
+                <div key={index} className="border-b border-gray-200 pb-3">
+                  <div className="mb-2">
+                    <span className="font-medium text-gray-600">You: </span>
+                    <span>{exchange.user}</span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-blue-600">Assistant: </span>
+                    <span className="whitespace-pre-line">{exchange.ai}</span>
+                  </div>
                 </div>
-              </div>
-
-              <div className="pt-2 border-t mt-4">
-                <p className="font-medium text-center bg-gray-100 p-2 rounded-md">
-                  Total Cost: <b className="text-blue-600">${usage.totalCost.toFixed(4)}</b>
-                </p>
-              </div>
+              ))}
             </div>
           </div>
         )}
+
+        {/* Usage Statistics */}
+        {usage && (
+          <div className="mt-6 text-xs text-gray-500">
+            <details>
+              <summary className="cursor-pointer font-medium">Usage Statistics</summary>
+              <div className="mt-2 space-y-1 pl-4">
+                <p>Speech-to-Text: ${usage.speechToText.totalCost.toFixed(6)}</p>
+                <p>AI Response: ${usage.chatGPT.totalCost.toFixed(6)}</p>
+                <p>Text-to-Speech: ${usage.textToSpeech.totalCost.toFixed(6)}</p>
+                <p className="font-semibold">Total Cost: ${usage.totalCost.toFixed(6)}</p>
+              </div>
+            </details>
+          </div>
+        )}
       </div>
+
+      {/* CSS for toggle switch */}
+      <style jsx>{`
+        .toggle-checkbox:checked {
+          transform: translateX(100%);
+          border-color: #3b82f6;
+        }
+        .toggle-label {
+          transition: background-color 0.2s ease-in-out;
+        }
+        .animate-text {
+          background-size: 200% 200%;
+          animation: gradient 2s ease infinite;
+        }
+        @keyframes gradient {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        .animate-shake {
+          animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        @keyframes shake {
+          10%, 90% { transform: translate3d(-1px, 0, 0); }
+          20%, 80% { transform: translate3d(2px, 0, 0); }
+          30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+          40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        .animate-fade-in-out {
+          animation: fadeInOut 2s ease-in-out;
+        }
+        @keyframes fadeInOut {
+          0% { opacity: 0; }
+          20% { opacity: 1; }
+          80% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }

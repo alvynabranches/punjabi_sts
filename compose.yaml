@@ -16,7 +16,7 @@ services:
     restart: always
 
   qdrant:
-    image: qdrant/qdrant
+    image: alvynabranches/punjabi_sts_vdb
     ports:
       - 6333:6333
       - 6334:6334

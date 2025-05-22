@@ -23,7 +23,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     restart: always
-  
+
   tigergraph:
     image: tigergraph/tigergraph:3.10.0
     ports:
@@ -37,5 +37,3 @@ services:
 volumes:
   qdrant_data:
   tigergraph_data:
-
-  

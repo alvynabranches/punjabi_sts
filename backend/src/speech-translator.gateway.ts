@@ -178,7 +178,11 @@ By following all the above guidelines, you will provide consistent, respectful, 
         // Set default language and API provider
         this.clientLanguages.set(client.id, 'en-US');
         client.data.apiProvider = 'openrouter';
-        this.clientConversations.set(client.id, [{ role: 'system', content: this.systemPrompt }]); // Initialize conversation history
+        if (this.clientLanguages.get(client.id) === 'pa-IN') {
+            this.clientConversations.set(client.id, [{ role: 'system', content: this.systemPrompt }]); // Initialize conversation history
+        } else {
+            this.clientConversations.set(client.id, []); // Initialize conversation history
+        }
     }
 
     handleDisconnect(client: Socket) {
@@ -235,7 +239,12 @@ By following all the above guidelines, you will provide consistent, respectful, 
             );
 
             // Retrieve the conversation history for the client
-            const conversationHistory = this.clientConversations.get(client.id) || [{ role: 'system', content: this.systemPrompt }];
+            let sysPrompt: ChatMessage[] = [];
+            if (this.clientLanguages.get(client.id) === 'pa-IN') {
+                sysPrompt = [{ role: 'system', content: this.systemPrompt }];
+            }
+            this.clientLanguages.get(client.id);
+            const conversationHistory = this.clientConversations.get(client.id) || sysPrompt;
 
             // Generate AI response with conversation history
             const aiResponse = await this.speechTranslatorService.generateAIResponse(

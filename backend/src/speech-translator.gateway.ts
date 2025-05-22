@@ -253,15 +253,23 @@ By following all the above guidelines, you will provide consistent, respectful, 
                 conversationHistory
             );
 
+            // Clean up markdown formatting from AI response
+            const cleanedResponse = aiResponse
+                .replace(/\*\*/g, '') // Remove bold formatting
+                .replace(/##\s*/g, '') // Remove h2 headers
+                .replace(/###\s*/g, '') // Remove h3 headers
+                .replace(/^-\s*/gm, '') // Remove list items
+                .replace(/\s{2,}/g, ' '); // Replace double spaces with single space
+
             // Update conversation history
             conversationHistory.push({ role: 'user', content: transcription });
-            conversationHistory.push({ role: 'assistant', content: aiResponse });
+            conversationHistory.push({ role: 'assistant', content: cleanedResponse });
             this.clientConversations.set(client.id, conversationHistory);
             console.log(this.clientConversations);
 
             // Convert response to speech
             const speechResponse = await this.speechTranslatorService.textToSpeech({
-                text: aiResponse,
+                text: cleanedResponse,
                 speakingRate,
                 languageCode: language,
                 pitch,
@@ -274,7 +282,7 @@ By following all the above guidelines, you will provide consistent, respectful, 
             // Send back to client
             client.emit('text-to-speech', {
                 transcription,
-                aiResponse,
+                aiResponse: cleanedResponse,
                 audioBuffer: speechResponse,
                 language,
                 usage: {

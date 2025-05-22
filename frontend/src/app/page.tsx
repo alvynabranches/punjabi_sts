@@ -172,11 +172,30 @@ export default function SpeechTranslator() {
 
   // Socket connection and event handling
   useEffect(() => {
-    const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || "http://localhost:3001");
+    const newSocket = io(process.env.NEXT_PUBLIC_WEBSOCKET_URL || "http://localhost:3001", {
+      transports: ["websocket", "polling"],  // Enable both WebSocket and polling for better mobile compatibility
+      reconnection: true,                    // Enable automatic reconnection
+      reconnectionAttempts: 5,              // Try to reconnect 5 times
+      reconnectionDelay: 1000,              // Start with 1s delay between reconnection attempts
+      timeout: 20000                        // Increase timeout for slower mobile connections
+    });
     setSocket(newSocket);
 
     newSocket.on('connect_error', (err: Error) => {
       setError(`Socket connection error: ${err.message}`);
+      console.error('Socket connection error:', err);
+    });
+
+    newSocket.on('reconnect_attempt', (attemptNumber: number) => {
+      console.log(`Attempting to reconnect: attempt ${attemptNumber}`);
+    });
+
+    newSocket.on('reconnect', () => {
+      console.log('Reconnected successfully');
+      setError(null);
+      // Re-establish settings after reconnection
+      newSocket.emit('set-language', language);
+      newSocket.emit('set-api-provider', apiProvider);
     });
 
     newSocket.on('text-to-speech', (data: {

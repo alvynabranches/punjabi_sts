@@ -6,6 +6,7 @@ import { OpenRouterService } from './services/openrouter.service';
 import { FireworksService } from './services/fireworks.service';
 import { RagService } from './services/rag.service';
 import { OpenAI } from 'openai';
+import {systemPrompt} from './system-prompt'
 
 // Define supported languages
 const SUPPORTED_LANGUAGES = ['en-US', 'hi-IN', 'pa-IN', 'mr-IN'] as const;
@@ -131,12 +132,12 @@ export class SpeechTranslatorService {
             if (this.useRag && ragContext) {
                 messages.push({
                     role: 'system',
-                    content: `You are a helpful assistant who responds in Punjabi only.`
+                    content: systemPrompt
                 });
                 
                 messages.push({
                     role: 'user',
-                    content: `${prompt}\n\n${ragContext}\n\nReturn the results in Punjabi only.`
+                    content: `${prompt}\n\n${ragContext}\n\nReturn the results in ${languageName} only.`
                 });
             } else {
                 // Standard prompt without RAG

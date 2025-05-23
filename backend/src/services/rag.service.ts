@@ -24,12 +24,10 @@ interface SearchResult {
 @Injectable()
 export class RagService {
     private qdrantUrl: string;
-    private qdrantApiKey: string;
     private collectionName = 'gurbani_collection';
 
     constructor(private configService: ConfigService) {
-        this.qdrantUrl = this.configService.get<string>('QDRANT_URL') || 'http://localhost:6333';
-        this.qdrantApiKey = this.configService.get<string>('QDRANT_API_KEY') || '';
+        this.qdrantUrl = this.configService.get<string>('QDRANT_URL') || 'http://qdrant:6333';
     }
 
     /**
@@ -102,10 +100,6 @@ export class RagService {
             const headers: Record<string, string> = {
                 'Content-Type': 'application/json'
             };
-
-            if (this.qdrantApiKey) {
-                headers['Api-Key'] = this.qdrantApiKey;
-            }
 
             const response = await axios.post(
                 `${this.qdrantUrl}/collections/${this.collectionName}/points/search`,

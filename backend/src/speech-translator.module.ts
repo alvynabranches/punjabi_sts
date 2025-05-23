@@ -10,9 +10,9 @@ import { RagService } from './services/rag.service';
 @Module({
     imports: [UsageTrackerModule, ConfigModule],
     providers: [
-        SpeechTranslatorService, 
-        SpeechTranslatorGateway, 
-        OpenRouterService, 
+        SpeechTranslatorService,
+        SpeechTranslatorGateway,
+        OpenRouterService,
         FireworksService,
         RagService
     ],

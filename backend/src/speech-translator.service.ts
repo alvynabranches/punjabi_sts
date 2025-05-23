@@ -6,7 +6,7 @@ import { OpenRouterService } from './services/openrouter.service';
 import { FireworksService } from './services/fireworks.service';
 import { RagService } from './services/rag.service';
 import { OpenAI } from 'openai';
-import {systemPrompt} from './system-prompt'
+import { systemPrompt } from './system-prompt'
 
 // Define supported languages
 const SUPPORTED_LANGUAGES = ['en-US', 'hi-IN', 'pa-IN', 'mr-IN'] as const;
@@ -111,7 +111,7 @@ export class SpeechTranslatorService {
                 try {
                     // Search for relevant Gurbani passages
                     const searchResults = await this.ragService.searchGurbani(prompt, 10);
-                    
+
                     if (searchResults.length > 0) {
                         // Format the search results into a readable context
                         ragContext = this.ragService.formatSearchResults(searchResults, languageCode);
@@ -124,17 +124,17 @@ export class SpeechTranslatorService {
             }
 
             const languageName = this.languageNames[languageCode];
-            
+
             // Construct the messages array with the correct type
             const messages: ChatMessage[] = [];
-            
+
             // If RAG is enabled and we have context, use a special prompt format
             if (this.useRag && ragContext) {
                 messages.push({
                     role: 'system',
                     content: systemPrompt
                 });
-                
+
                 messages.push({
                     role: 'user',
                     content: `${prompt}\n\n${ragContext}\n\nReturn the results in ${languageName} only.`
@@ -146,13 +146,13 @@ export class SpeechTranslatorService {
                     content: `You are a helpful assistant who responds in ${languageName}. 
                         Keep your responses natural, conversational, and concise.`
                 });
-                
+
                 // Add conversation history
                 messages.push(...conversationHistory.map(msg => ({
                     role: msg.role,
                     content: msg.content
                 })));
-                
+
                 // Add the user's prompt
                 messages.push({
                     role: 'user',
@@ -204,7 +204,7 @@ export class SpeechTranslatorService {
             const errorMessage = this.getErrorMessage(error);
             // Track failed API usage
             let modelNameForTracking = '';
-            
+
             // Determine the model name based on the API provider
             switch (this.apiProvider) {
                 case 'openrouter':
@@ -218,7 +218,7 @@ export class SpeechTranslatorService {
                     modelNameForTracking = this.MODEL_NAME;
                     break;
             }
-            
+
             this.usageTracker.trackChatGPT(
                 prompt,
                 '',
@@ -235,7 +235,7 @@ export class SpeechTranslatorService {
     private isGurbaniQuery(prompt: string, languageCode: LanguageCode): boolean {
         // Always return true when RAG is enabled to use Gurbani knowledge for all queries
         return true;
-        
+
         // The following code is commented out as we now want to use RAG for all queries
         /*
         // Simple heuristic: check if the query contains Gurbani-related keywords

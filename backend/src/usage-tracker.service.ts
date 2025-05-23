@@ -80,7 +80,7 @@ export class UsageTrackerService {
                 };
             }
         }
-        
+
         // Handle OpenAI models
         switch (model as SupportedModel) {
             case 'gpt-4o':
@@ -111,7 +111,7 @@ export class UsageTrackerService {
                 enc.free();
                 return tokens.length;
             }
-            
+
             // For OpenAI models, use the specific tokenizer
             const validModelName = this.isValidModel(modelName) ? modelName : 'gpt-4';
             const model = this.SUPPORTED_MODELS[validModelName];
@@ -160,12 +160,12 @@ export class UsageTrackerService {
         // Get input and output tokens
         const inputTokens = this.countTokens(prompt);
         const outputTokens = success ? this.countTokens(response) : 0;
-        
+
         // Determine cost based on model/provider
         let inputCost = 0;
         let outputCost = 0;
         let modelForMetadata = modelName;
-        
+
         if (modelName.startsWith('openrouter')) {
             // OpenRouter is free
             inputCost = this.COSTS.OPENROUTER_INPUT_PER_1K_TOKENS;
@@ -182,7 +182,7 @@ export class UsageTrackerService {
             outputCost = modelCosts.output;
             modelForMetadata = validModelName;
         }
-        
+
         const usage: APIUsage = {
             timestamp: new Date(),
             type: 'chatgpt',
@@ -305,24 +305,24 @@ export class UsageTrackerService {
         const successful = typeUsage.filter(u => u.metadata.success).length;
         return (successful / typeUsage.length) * 100;
     }
-    
+
     private calculateProviderUsage(usageLog: APIUsage[], provider: 'openai' | 'openrouter' | 'fireworks') {
         let filteredUsage: APIUsage[];
-        
+
         if (provider === 'openai') {
             // Filter for OpenAI models (not starting with openrouter or fireworks)
-            filteredUsage = usageLog.filter(u => 
-                u.metadata.model && 
-                !u.metadata.model.startsWith('openrouter') && 
+            filteredUsage = usageLog.filter(u =>
+                u.metadata.model &&
+                !u.metadata.model.startsWith('openrouter') &&
                 !u.metadata.model.startsWith('fireworks')
             );
         } else {
             // Filter for specific provider models
-            filteredUsage = usageLog.filter(u => 
+            filteredUsage = usageLog.filter(u =>
                 u.metadata.model && u.metadata.model.startsWith(provider)
             );
         }
-        
+
         return {
             totalInputTokens: filteredUsage.reduce((sum, usage) => sum + (usage.inputTokens || 0), 0),
             totalOutputTokens: filteredUsage.reduce((sum, usage) => sum + (usage.outputTokens || 0), 0),
@@ -342,8 +342,8 @@ export class UsageTrackerService {
             ...(usage.outputTokens && { outputTokens: usage.outputTokens }),
             ...(usage.metadata.voiceType && { voiceType: usage.metadata.voiceType }),
             model: usage.metadata.model,
-            provider: usage.metadata.model?.startsWith('openrouter') ? 'OpenRouter (free)' : 
-                     usage.metadata.model?.startsWith('fireworks') ? 'Fireworks AI' : 'OpenAI',
+            provider: usage.metadata.model?.startsWith('openrouter') ? 'OpenRouter (free)' :
+                usage.metadata.model?.startsWith('fireworks') ? 'Fireworks AI' : 'OpenAI',
             success: usage.metadata.success
         });
     }
